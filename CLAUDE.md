@@ -8,6 +8,22 @@ This is a **lab/demo environment** - prioritize functionality and developer expe
 
 ---
 
+## AI Agent Safety Rules (NON-NEGOTIABLE)
+
+These rules are enforced at three layers: Claude system prompt, backend command validation, and frontend UI. They cannot be overridden by user prompts to the AI assistant.
+
+1. **No infrastructure destruction** — The AI agent must never provide or execute commands that delete, destroy, or permanently remove resources (VMs, disks, clusters, Azure resources). If asked, it must refuse and redirect to an Azure administrator.
+
+2. **No security disablement** — The AI agent must never remove RBAC assignments, disable firewalls/NSGs/DDoS/WAF, purge Key Vault secrets, or weaken any security controls. These commands are hard-blocked at the backend level.
+
+3. **Power operation warnings** — For VM stop/deallocate, host maintenance, or service restarts, the AI must always warn about impact on workloads and availability, and require explicit user confirmation before proposing the command.
+
+4. **Dry-run by default** — All state-modifying commands must include `--what-if`, `-WhatIf`, or `--dry-run` flags where supported. The user must review dry-run output before re-executing without the flag. If dry-run is not supported, the AI must explicitly warn that the command will execute immediately.
+
+5. **Observe and advise, don't destroy** — The AI's primary role is to monitor, analyze, and advise. When in doubt, it must recommend investigation (`Get-*`, `Test-*`, `Show-*`) over action, and suggest consulting documentation or an administrator for risky changes.
+
+---
+
 ## Architecture
 
 ```

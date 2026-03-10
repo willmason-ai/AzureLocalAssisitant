@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 
 from backend.auth.middleware import require_auth
-from backend.app import get_ai_service
+from backend.app import get_ai_service, get_ps_executor
 
 ai_bp = Blueprint('ai', __name__)
 
@@ -49,6 +49,18 @@ def execute_tool():
         if field not in data:
             return jsonify({'error': f'{field} is required'}), 400
 
+    # Pre-execution safety check for PowerShell commands
+    if data['tool_name'] == 'execute_powershell':
+        ps = get_ps_executor(current_app)
+        command = data['tool_input'].get('command', '')
+        safety = ps.get_safety_classification(command)
+        if not safety['allowed']:
+            return jsonify({
+                'error': safety['reason'],
+                'safety_level': safety['level'],
+                'blocked': True
+            }), 403
+
     ai = get_ai_service(current_app)
 
     def generate():
@@ -71,6 +83,19 @@ def execute_tool():
             'X-Accel-Buffering': 'no'
         }
     )
+
+
+@ai_bp.route('/safety-check', methods=['POST'])
+@require_auth
+def safety_check():
+    """Pre-check a command's safety classification before execution."""
+    data = request.get_json()
+    if not data or 'command' not in data:
+        return jsonify({'error': 'command is required'}), 400
+
+    ps = get_ps_executor(current_app)
+    classification = ps.get_safety_classification(data['command'])
+    return jsonify(classification)
 
 
 @ai_bp.route('/conversations', methods=['GET'])

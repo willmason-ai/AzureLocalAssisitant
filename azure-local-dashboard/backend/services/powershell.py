@@ -4,21 +4,72 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════
+# HARD SAFETY ENFORCEMENT — Commands that are NEVER allowed to execute
+# These act as a backstop regardless of what the AI proposes
+# ═══════════════════════════════════════════════════════════════
+
+# Rule 1: No infrastructure destruction
 BLOCKED_COMMANDS = [
+    # Cluster destruction
     'Remove-ClusterNode',
     'Stop-Cluster',
+    'Destroy-Cluster',
+    'Remove-ClusterGroup',
+    'Remove-ClusterResource',
+    'Remove-ClusterSharedVolume',
+    # Storage destruction
     'Format-Volume',
     'Remove-VirtualDisk',
     'Clear-Disk',
+    'Remove-StoragePool',
+    'Remove-PhysicalDisk',
+    # VM destruction
+    'Remove-VM',
+    'Remove-VMSnapshot',
+    'Remove-VMHardDiskDrive',
+    'Remove-VMSwitch',
+    # Azure resource destruction
+    'Unregister-AzStackHCI',
+    'Remove-AzResource',
+    'Remove-AzResourceGroup',
+    'az resource delete',
+    'az group delete',
+    'az vm delete',
+    'az aks delete',
+    'az aksarc delete',
+    'az arcappliance delete',
+    # Rule 2: No security disablement
+    'Remove-AzRoleAssignment',
+    'az role assignment delete',
+    'Remove-AzNetworkSecurityGroup',
+    'Remove-AzNetworkSecurityRuleConfig',
+    'Set-NetFirewallProfile -Enabled False',
+    'Disable-NetFirewallRule',
+    'Remove-AzKeyVaultSecret',
+    'Remove-AzKeyVault',
+    'Disable-WindowsOptionalFeature',
+    'Set-MpPreference -DisableRealtimeMonitoring',
+    'Uninstall-WindowsFeature',
 ]
 
+# Commands that require explicit user confirmation + impact warning (Rule 3)
 DESTRUCTIVE_COMMANDS = [
     'Start-SolutionUpdate',
     'Repair-MocLogin',
     'Update-MocIdentity',
     'Restart-Computer',
     'Stop-VM',
-    'Remove-VM',
+    'Suspend-ClusterNode',
+    'Resume-ClusterNode',
+    'Stop-ClusterNode',
+    'Restart-Service',
+    'Stop-Service',
+    'Move-ClusterGroup',
+    'az vm stop',
+    'az vm deallocate',
+    'az vm restart',
+    'az aksarc upgrade',
 ]
 
 
@@ -90,12 +141,42 @@ class PowerShellExecutor:
         cmd_lower = command.lower()
         for blocked in BLOCKED_COMMANDS:
             if blocked.lower() in cmd_lower:
-                return False, f"Command '{blocked}' is blocked for safety."
+                return False, (
+                    f"BLOCKED: '{blocked}' is permanently blocked by safety policy. "
+                    f"This command could destroy infrastructure or disable security controls. "
+                    f"Contact an Azure administrator to perform this action directly."
+                )
         return True, ""
 
     def is_destructive(self, command: str) -> bool:
         cmd_lower = command.lower()
         return any(d.lower() in cmd_lower for d in DESTRUCTIVE_COMMANDS)
+
+    def get_safety_classification(self, command: str) -> dict:
+        """Classify a command's safety level for the frontend to display warnings."""
+        is_safe, reason = self._validate_command(command)
+        if not is_safe:
+            return {
+                "level": "blocked",
+                "allowed": False,
+                "reason": reason,
+            }
+        if self.is_destructive(command):
+            return {
+                "level": "destructive",
+                "allowed": True,
+                "reason": (
+                    "This command modifies cluster state. Review the impact carefully "
+                    "and confirm you understand the consequences before executing."
+                ),
+                "requires_confirmation": True,
+            }
+        return {
+            "level": "safe",
+            "allowed": True,
+            "reason": "Read-only or low-risk command.",
+            "requires_confirmation": False,
+        }
 
     def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
         try:

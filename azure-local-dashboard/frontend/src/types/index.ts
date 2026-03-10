@@ -99,7 +99,7 @@ export interface ToolCall {
     target_node?: string;
     explanation: string;
   };
-  status?: 'pending' | 'approved' | 'executing' | 'completed' | 'rejected';
+  status?: 'pending' | 'approved' | 'executing' | 'completed' | 'rejected' | 'blocked';
 }
 
 export interface ToolResult {
