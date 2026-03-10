@@ -12,9 +12,7 @@ services:
       - dashboard-data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
-    dns:
-      - 10.20.10.5
-      - 8.8.8.8
+    # BUG-041: DNS inherited from host. Override via .env or docker network config if needed.
 
 volumes:
   dashboard-data:

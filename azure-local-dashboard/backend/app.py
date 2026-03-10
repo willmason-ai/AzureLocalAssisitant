@@ -38,7 +38,10 @@ def create_app(config_class=Config):
 
     app.config.from_object(config_class)
     setup_logging(app)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # BUG-014: Restrict CORS to configured origins (empty = same-origin only)
+    cors_origins = app.config.get('CORS_ORIGINS', '')
+    allowed_origins = [o.strip() for o in cors_origins.split(',') if o.strip()] if cors_origins else []
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins or "*"}})
 
     # Request logging — log every API call with timing
     @app.before_request

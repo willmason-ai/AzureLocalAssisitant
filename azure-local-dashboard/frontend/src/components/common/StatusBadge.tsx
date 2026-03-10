@@ -39,7 +39,8 @@ const statusColors: Record<string, string> = {
 
 export default function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
   const statusStr = typeof status === 'string' ? status : String(status ?? 'unknown');
-  const colorClass = statusColors[statusStr.toLowerCase().replace(/\s+/g, '')] || statusColors['unknown'];
+  const normalized = statusStr.toLowerCase().replace(/[\s_\-]+/g, '');
+  const colorClass = statusColors[normalized] || statusColors['unknown'];
 
   return (
     <span

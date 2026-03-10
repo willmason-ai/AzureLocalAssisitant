@@ -22,6 +22,11 @@ class AzureAPIClient:
         self.client_secret = config.get('AZURE_CLIENT_SECRET', '')
         self.subscription_id = config.get('AZURE_SUBSCRIPTION_ID', '')
         self.resource_group = config.get('AZURE_RESOURCE_GROUP', '')
+        self.cluster_name = config.get('AZURELOCAL_CLUSTER', 'azurestack01')
+        self.node_names = [
+            config.get('AZURELOCAL_NODE1', 'dell-as01.presidiorocks.com').split('.')[0],
+            config.get('AZURELOCAL_NODE2', 'dell-as02.presidiorocks.com').split('.')[0],
+        ]
         self._token = None
         self._token_expiry = 0
 
@@ -65,7 +70,9 @@ class AzureAPIClient:
     def _resource_group_path(self) -> str:
         return f"/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group}"
 
-    def get_arb_extensions(self, appliance_name: str = 'azurestack01-arcbridge') -> list:
+    def get_arb_extensions(self, appliance_name: str = None) -> list:
+        if appliance_name is None:
+            appliance_name = f'{self.cluster_name}-arcbridge'
         """Get Arc Resource Bridge (appliance) extensions via K8s configuration API."""
         path = (
             f"{self._resource_group_path()}/providers/Microsoft.ResourceConnector"
@@ -98,6 +105,6 @@ class AzureAPIClient:
             'arb_extensions': self.get_arb_extensions(),
             'node_extensions': {}
         }
-        for node in ['dell-as01', 'dell-as02']:
+        for node in self.node_names:
             result['node_extensions'][node] = self.get_node_extensions(node)
         return result

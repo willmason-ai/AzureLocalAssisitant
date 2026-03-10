@@ -31,7 +31,7 @@ export function useRepairMoc() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+      queryClient.invalidateQueries({ queryKey: ['credentials'], exact: false });
     },
   });
 }
@@ -47,7 +47,7 @@ export function useRotateKVA() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+      queryClient.invalidateQueries({ queryKey: ['credentials'], exact: false });
     },
   });
 }

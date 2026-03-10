@@ -65,6 +65,10 @@ def execute_tool():
 
     if not isinstance(data['conversation_id'], str) or not _validate_conversation_id(data['conversation_id']):
         return jsonify({'error': 'Invalid conversation_id'}), 400
+    if not isinstance(data['tool_call_id'], str):
+        return jsonify({'error': 'tool_call_id must be a string'}), 400
+    if not isinstance(data['tool_name'], str):
+        return jsonify({'error': 'tool_name must be a string'}), 400
     if not isinstance(data['tool_input'], dict):
         return jsonify({'error': 'tool_input must be an object'}), 400
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Trash2, Loader2 } from 'lucide-react';
+import { Send, Trash2, Loader2, RefreshCw } from 'lucide-react';
 import { useAIChat } from '../../hooks/useAIChat';
 import ChatMessage from './ChatMessage';
 
@@ -7,19 +7,27 @@ export default function ChatInterface() {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // BUG-038: Track message count to only scroll on new messages
+  const prevMessageCount = useRef(0);
 
   const {
     messages,
     isStreaming,
+    streamError,
     sendMessage,
     executeToolCall,
     rejectToolCall,
+    retryLastMessage,
     clearMessages,
   } = useAIChat();
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    // BUG-038: Only scroll when new messages are added
+    if (messages.length > prevMessageCount.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessageCount.current = messages.length;
+  }, [messages.length]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +44,10 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    // BUG-037: Use flex-grow with min-h-0 for flexible height
+    <div className="flex flex-col flex-grow min-h-0" style={{ height: 'calc(100vh - 8rem)' }}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -76,6 +85,21 @@ export default function ChatInterface() {
             onRejectToolCall={rejectToolCall}
           />
         ))}
+
+        {/* BUG-026: Show retry button on stream error */}
+        {streamError && !isStreaming && (
+          <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <span className="text-sm text-red-400 flex-1">Connection error: {streamError}</span>
+            <button
+              onClick={retryLastMessage}
+              className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Retry
+            </button>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 

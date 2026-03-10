@@ -6,6 +6,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  # BUG-040: Explicitly set storageClassName. Use 'default' for AKS on Azure Local
+  # or override with the appropriate StorageClass for your cluster.
+  storageClassName: default
   resources:
     requests:
       storage: 1Gi

@@ -43,6 +43,14 @@ class Config:
     # App
     PORT = int(os.getenv('PORT', '5230'))
     DATA_DIR = os.getenv('DATA_DIR', '/app/data')
+    CORS_ORIGINS = os.getenv('CORS_ORIGINS', '')  # Comma-separated; empty = same-origin only
+
+    # KVA token path (configurable instead of hardcoded)
+    KVA_TOKEN_PATH = os.getenv(
+        'KVA_TOKEN_PATH',
+        r'C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1'
+        r'\MocArb\WorkingDirectory\Appliance\kvatoken.tok'
+    )
 
     # Scheduler intervals (seconds)
     HEALTH_CHECK_INTERVAL = int(os.getenv('HEALTH_CHECK_INTERVAL', '60'))

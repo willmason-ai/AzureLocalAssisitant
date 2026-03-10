@@ -41,7 +41,7 @@ export function useStartUpdate() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['updates'] });
+      queryClient.invalidateQueries({ queryKey: ['updates'], exact: false });
     },
   });
 }

@@ -92,7 +92,7 @@ def get_connection():
 def test_connection():
     ps = get_ps_executor(current_app)
     results = {}
-    for node_name in ['dell-as01', 'dell-as02']:
+    for node_name in ps.nodes:
         result = ps.execute(
             'hostname',
             target_node=node_name,

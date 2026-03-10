@@ -9,6 +9,15 @@ from backend.utils.enums import (
 cluster_bp = Blueprint('cluster', __name__)
 
 
+def _ensure_list(data):
+    """BUG-029: PowerShell ConvertTo-Json returns object for single items."""
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    return [data]
+
+
 @cluster_bp.route('/status', methods=['GET'])
 @require_auth
 def cluster_status():
@@ -31,8 +40,8 @@ def cluster_status():
     )
 
     return jsonify({
-        'nodes': result.parsed,
-        'health_faults': faults_result.parsed if faults_result.success else []
+        'nodes': _ensure_list(result.parsed),
+        'health_faults': _ensure_list(faults_result.parsed) if faults_result.success else []
     })
 
 
@@ -59,7 +68,7 @@ def cluster_nodes():
         '} | ConvertTo-Json'
     )
 
-    for node_name in ['dell-as01', 'dell-as02']:
+    for node_name in ps.nodes:
         result = ps.execute(cim_query, target_node=node_name)
         if result.success:
             nodes_data[node_name] = result.parsed
@@ -87,8 +96,8 @@ def cluster_storage():
     )
 
     return jsonify({
-        'storage_pools': pools.parsed if pools.success else [],
-        'virtual_disks': disks.parsed if disks.success else []
+        'storage_pools': _ensure_list(pools.parsed) if pools.success else [],
+        'virtual_disks': _ensure_list(disks.parsed) if disks.success else []
     })
 
 
@@ -106,7 +115,7 @@ def cluster_vms():
 
     resolve_enums(result.parsed, {'State': VM_STATE})
 
-    return jsonify({'vms': result.parsed or []})
+    return jsonify({'vms': _ensure_list(result.parsed)})
 
 
 @cluster_bp.route('/time', methods=['GET'])

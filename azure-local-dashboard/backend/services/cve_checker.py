@@ -30,7 +30,7 @@ class CVEChecker:
                     data = resp.json()
                     results.extend(self._parse_cvrf_for_hci(data))
             except Exception as e:
-                logger.debug(f"Failed to fetch MSRC data for {doc_id}: {e}")
+                logger.warning(f"Failed to fetch MSRC data for {doc_id}: {e}")
                 continue
 
         self._cache['cves'] = results

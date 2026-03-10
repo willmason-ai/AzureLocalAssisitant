@@ -2,6 +2,19 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+# BUG-043: Import at module level so missing packages are caught at startup
+try:
+    import winrm  # noqa: F401
+except ImportError:
+    winrm = None
+    logging.getLogger(__name__).warning("pywinrm not installed — WinRM transport unavailable")
+
+try:
+    import paramiko  # noqa: F401
+except ImportError:
+    paramiko = None
+    logging.getLogger(__name__).warning("paramiko not installed — SSH transport unavailable")
+
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════
@@ -110,6 +123,13 @@ class PowerShellExecutor:
 
         node_fqdn = self._select_node(target_node)
         # Mask any credentials that might appear in the command text
+        # BUG-023: Log full command to audit logger for security trail
+        audit_logger = logging.getLogger('audit')
+        audit_cmd = command
+        if self.password and self.password in audit_cmd:
+            audit_cmd = audit_cmd.replace(self.password, '****')
+        audit_logger.info(f"EXEC [{node_fqdn}]: {audit_cmd}")
+
         log_cmd = command[:200]
         if self.password and self.password in log_cmd:
             log_cmd = log_cmd.replace(self.password, '****')
@@ -169,6 +189,11 @@ class PowerShellExecutor:
         cmd_lower = command.lower()
         return any(d.lower() in cmd_lower for d in DESTRUCTIVE_COMMANDS)
 
+    def _has_dry_run_flag(self, command: str) -> bool:
+        """Check if a command includes a dry-run/what-if flag."""
+        cmd_lower = command.lower()
+        return any(flag in cmd_lower for flag in ['--what-if', '-whatif', '--dry-run', '--dryrun'])
+
     def get_safety_classification(self, command: str) -> dict:
         """Classify a command's safety level for the frontend to display warnings."""
         is_safe, reason = self._validate_command(command)
@@ -179,14 +204,18 @@ class PowerShellExecutor:
                 "reason": reason,
             }
         if self.is_destructive(command):
+            has_dry_run = self._has_dry_run_flag(command)
             return {
                 "level": "destructive",
                 "allowed": True,
                 "reason": (
                     "This command modifies cluster state. Review the impact carefully "
                     "and confirm you understand the consequences before executing."
+                    + ("" if has_dry_run else
+                       " WARNING: No --WhatIf/--dry-run flag detected. This command will execute immediately.")
                 ),
                 "requires_confirmation": True,
+                "has_dry_run": has_dry_run,
             }
         return {
             "level": "safe",
@@ -197,8 +226,9 @@ class PowerShellExecutor:
 
     def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
         try:
-            import winrm
             import socket
+            if winrm is None:
+                raise ImportError("pywinrm is not installed")
 
             protocol = 'https' if self.use_ssl else 'http'
             port = 5986 if self.use_ssl else 5985
@@ -219,6 +249,8 @@ class PowerShellExecutor:
                     transport_used='winrm'
                 )
 
+            # BUG-016: SSL cert validation disabled — acceptable for lab/internal WinRM
+            # with self-signed certs. For production, configure proper CA trust.
             session = winrm.Session(
                 endpoint,
                 auth=(full_username, self.password),
@@ -252,7 +284,8 @@ class PowerShellExecutor:
     def _execute_ssh(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
         client = None
         try:
-            import paramiko
+            if paramiko is None:
+                raise ImportError("paramiko is not installed")
 
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -306,4 +339,6 @@ class PowerShellExecutor:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            return cleaned
+            # BUG-018: Return None instead of raw string to avoid type mismatches
+            logger.debug(f"JSON parse failed, raw output: {cleaned[:200]}")
+            return None

@@ -32,7 +32,7 @@ export default function ConfirmModal({
       <div className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-w-md w-full mx-4">
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
+            <AlertTriangle className={`w-5 h-5 ${variant === 'danger' ? 'text-red-400' : variant === 'info' ? 'text-blue-400' : 'text-amber-400'}`} />
             <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
           </div>
           <button onClick={onCancel} className="text-slate-400 hover:text-slate-200">

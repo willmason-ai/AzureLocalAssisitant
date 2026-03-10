@@ -17,9 +17,9 @@ def credential_status():
     results = {}
 
     # KVA token file age — normalize DateTime to ISO string
+    kva_path = current_app.config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
     kva_result = ps.execute(
-        '$f = Get-Item "C:\\ClusterStorage\\Infrastructure_1\\Shares\\SU1_Infrastructure_1'
-        '\\MocArb\\WorkingDirectory\\Appliance\\kvatoken.tok"; '
+        f'$f = Get-Item "{kva_path}"; '
         '[PSCustomObject]@{ '
         '  Name = $f.Name; '
         '  LastWriteTime = $f.LastWriteTime.ToString("o"); '
@@ -105,11 +105,12 @@ def rotate_kva():
         return jsonify({'error': 'validity_days must be between 1 and 3650'}), 400
 
     ps = get_ps_executor(current_app)
+    cluster_fqdn = f"{current_app.config.get('AZURELOCAL_CLUSTER', 'azurestack01')}.{current_app.config.get('AZURELOCAL_DOMAIN', 'presidiorocks.com')}"
+    kva_path = current_app.config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
     result = ps.execute(
         f'Update-MocIdentity -name "Appliance" -validityDays {validity_days} '
-        f'-fqdn "azurestack01.presidiorocks.com" -location "MocLocation" '
-        f'-outFile "C:\\ClusterStorage\\Infrastructure_1\\Shares\\SU1_Infrastructure_1'
-        f'\\MocArb\\WorkingDirectory\\Appliance\\kvatoken.tok" -enableTokenAutoRotate',
+        f'-fqdn "{cluster_fqdn}" -location "MocLocation" '
+        f'-outFile "{kva_path}" -enableTokenAutoRotate',
         target_node='any',
         timeout=300
     )

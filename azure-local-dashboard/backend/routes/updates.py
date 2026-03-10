@@ -6,6 +6,15 @@ from backend.app import get_ps_executor
 updates_bp = Blueprint('updates', __name__)
 
 
+def _ensure_list(data):
+    """BUG-029: PowerShell ConvertTo-Json returns object for single items. Normalize to list."""
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    return [data]
+
+
 @updates_bp.route('', methods=['GET'])
 @require_auth
 def list_updates():
@@ -17,7 +26,7 @@ def list_updates():
     )
     if not result.success:
         return jsonify({'error': result.stderr}), 500
-    return jsonify({'updates': result.parsed or []})
+    return jsonify({'updates': _ensure_list(result.parsed)})
 
 
 @updates_bp.route('/current', methods=['GET'])
@@ -47,7 +56,7 @@ def update_history():
     )
     if not result.success:
         return jsonify({'error': result.stderr}), 500
-    return jsonify({'history': result.parsed or []})
+    return jsonify({'history': _ensure_list(result.parsed)})
 
 
 @updates_bp.route('/environment', methods=['GET'])
@@ -85,5 +94,10 @@ def start_update():
 @updates_bp.route('/cve', methods=['GET'])
 @require_auth
 def get_cves():
-    # CVE checker will be implemented in Phase 8
-    return jsonify({'cves': [], 'message': 'CVE checking not yet configured'})
+    from backend.services.cve_checker import CVEChecker
+    try:
+        checker = CVEChecker()
+        cves = checker.get_recent_cves(months_back=3)
+        return jsonify({'cves': cves})
+    except Exception as e:
+        return jsonify({'cves': [], 'error': str(e)}), 500

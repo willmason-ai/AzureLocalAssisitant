@@ -75,9 +75,9 @@ class HealthScheduler:
 
     def _check_credentials(self):
         try:
+            kva_path = self.app.config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
             result = self.ps_executor.execute(
-                '$f = Get-Item "C:\\ClusterStorage\\Infrastructure_1\\Shares\\SU1_Infrastructure_1'
-                '\\MocArb\\WorkingDirectory\\Appliance\\kvatoken.tok"; '
+                f'$f = Get-Item "{kva_path}"; '
                 '[PSCustomObject]@{ Name = $f.Name; LastWriteTime = $f.LastWriteTime.ToString("o") } '
                 '| ConvertTo-Json',
                 target_node='any',

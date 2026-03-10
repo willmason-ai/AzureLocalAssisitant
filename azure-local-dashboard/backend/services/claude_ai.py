@@ -62,6 +62,7 @@ class ClaudeAIService:
         self.conversations = {}
         self.data_dir = Path(config.get('DATA_DIR', '/app/data')) / 'conversations'
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._kva_token_path = config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
         self.system_prompt = self._build_system_prompt(config)
 
     def _build_system_prompt(self, config) -> str:
@@ -96,7 +97,7 @@ You are knowledgeable about:
 
 Key operational lessons from this cluster:
 - KVA MOC tokens expire after 1 year and do NOT auto-rotate by default
-  Token location: C:\\ClusterStorage\\Infrastructure_1\\Shares\\SU1_Infrastructure_1\\MocArb\\WorkingDirectory\\Appliance\\kvatoken.tok
+  Token location: {config.get('KVA_TOKEN_PATH', 'C:\\\\ClusterStorage\\\\Infrastructure_1\\\\Shares\\\\SU1_Infrastructure_1\\\\MocArb\\\\WorkingDirectory\\\\Appliance\\\\kvatoken.tok')}
 - Entra ID SPN secrets expire independently (ARB SPN App ID: 12c20bcd-43fe-4c8b-b582-c6a71cc026e8)
 - az login cannot run via remote PS sessions (needs RDP or local console) due to DPAPI delegation errors
 - Update orchestrator uses checkpoint-based resume - failed updates retry from last failed step
@@ -313,8 +314,7 @@ structured data."""
         results = []
 
         kva = self.ps_executor.execute(
-            'Get-Item "C:\\ClusterStorage\\Infrastructure_1\\Shares\\SU1_Infrastructure_1'
-            '\\MocArb\\WorkingDirectory\\Appliance\\kvatoken.tok" | '
+            f'Get-Item "{self._kva_token_path}" | '
             'Select-Object Name, LastWriteTime | ConvertTo-Json',
             target_node='any'
         )
