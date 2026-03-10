@@ -38,7 +38,10 @@ export default function Sidebar() {
         <div className="flex items-center gap-2">
           <Server className="w-6 h-6 text-blue-500" />
           <div>
-            <h1 className="text-sm font-bold text-slate-100">Azure Local Ops</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold text-slate-100">Azure Local Ops</h1>
+              <span className="text-[10px] text-slate-500 font-mono">v{__APP_VERSION__}</span>
+            </div>
             <p className="text-xs text-slate-400">{config?.cluster_name || 'Loading...'}</p>
           </div>
         </div>
