@@ -6,6 +6,72 @@ from backend.app import get_ps_executor
 settings_bp = Blueprint('settings', __name__)
 
 
+@settings_bp.route('/system-overview', methods=['GET'])
+@require_auth
+def system_overview():
+    """Get storage volumes, Azure Local version, and update status."""
+    ps = get_ps_executor(current_app)
+
+    # Get all Cluster Shared Volumes with usage info
+    csv_result = ps.execute(
+        'Get-ClusterSharedVolume | ForEach-Object { '
+        '  $info = $_.SharedVolumeInfo; '
+        '  [PSCustomObject]@{ '
+        '    Name = $_.Name; '
+        '    State = $_.State; '
+        '    VolumeFriendlyName = $info.FriendlyVolumeName; '
+        '    TotalSize = $info.Partition.Size; '
+        '    FreeSpace = $info.Partition.FreeSpace; '
+        '    UsedSpace = $info.Partition.UsedSpace; '
+        '    PercentFree = $info.Partition.PercentFree; '
+        '    FileSystem = $info.Partition.FileSystem; '
+        '    OwnerNode = $_.OwnerNode.Name '
+        '  } '
+        '} | ConvertTo-Json -Depth 3',
+        target_node='any'
+    )
+
+    # Get installed version from the most recent installed update
+    version_result = ps.execute(
+        'Get-SolutionUpdate | Select-Object DisplayName, State, Version | ConvertTo-Json -Depth 3',
+        target_node='any'
+    )
+
+    # Get cluster node time
+    time_result = ps.execute(
+        'Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"',
+        target_node='any',
+        parse_json=False
+    )
+
+    # Parse version info to determine current and available
+    updates = version_result.parsed if version_result.success else []
+    if isinstance(updates, dict):
+        updates = [updates]
+
+    current_version = None
+    pending_updates = []
+    for u in (updates or []):
+        state = (u.get('State') or '').lower()
+        if state == 'installed':
+            if not current_version or (u.get('Version', '') > current_version.get('Version', '')):
+                current_version = u
+        elif state in ('ready', 'downloading', 'available'):
+            pending_updates.append(u)
+
+    return jsonify({
+        'cluster_volumes': csv_result.parsed if csv_result.success else [],
+        'current_version': current_version,
+        'pending_updates': pending_updates,
+        'is_up_to_date': len(pending_updates) == 0,
+        'cluster_time': time_result.stdout.strip() if time_result.success else None,
+        'errors': {
+            'volumes': csv_result.stderr if not csv_result.success else None,
+            'version': version_result.stderr if not version_result.success else None,
+        }
+    })
+
+
 @settings_bp.route('/connection', methods=['GET'])
 @require_auth
 def get_connection():
