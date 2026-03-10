@@ -3,10 +3,11 @@ import { Puzzle, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import ErrorAlert from '../components/common/ErrorAlert';
 import { safeString } from '../utils/safeRender';
 
 export default function ExtensionsPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['extensions'],
     queryFn: async () => {
       const { data } = await api.get('/extensions');
@@ -15,6 +16,7 @@ export default function ExtensionsPage() {
   });
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-20" />;
+  if (isError) return <ErrorAlert message={(error as any)?.response?.data?.error || (error as any)?.message} onRetry={() => refetch()} />;
 
   const arbExtensions = data?.arb_extensions || [];
   const nodeExtensions = data?.node_extensions || {};

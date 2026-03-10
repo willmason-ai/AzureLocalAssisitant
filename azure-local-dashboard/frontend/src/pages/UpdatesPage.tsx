@@ -4,11 +4,12 @@ import { useUpdates, useCurrentUpdate, useUpdateHistory, useStartUpdate } from '
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ConfirmModal from '../components/common/ConfirmModal';
+import ErrorAlert from '../components/common/ErrorAlert';
 import UpdateTimeline from '../components/updates/UpdateTimeline';
 import { safeString } from '../utils/safeRender';
 
 export default function UpdatesPage() {
-  const { data: updates, isLoading } = useUpdates();
+  const { data: updates, isLoading, isError, error, refetch } = useUpdates();
   const { data: currentRun } = useCurrentUpdate();
   const { data: history } = useUpdateHistory();
   const startUpdate = useStartUpdate();
@@ -16,6 +17,7 @@ export default function UpdatesPage() {
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-20" />;
+  if (isError) return <ErrorAlert message={(error as any)?.response?.data?.error || (error as any)?.message} onRetry={() => refetch()} />;
 
   const updateList = Array.isArray(updates?.updates) ? updates.updates : updates?.updates ? [updates.updates] : [];
   const historyList = Array.isArray(history?.history) ? history.history : history?.history ? [history.history] : [];

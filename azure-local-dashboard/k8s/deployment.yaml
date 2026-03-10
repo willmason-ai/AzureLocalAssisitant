@@ -17,10 +17,17 @@ spec:
       labels:
         app: azure-local-dashboard
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: dashboard
           image: cravsnetmon.azurecr.io/azure-local-dashboard:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
           ports:
             - containerPort: 5230
               protocol: TCP
@@ -40,12 +47,14 @@ spec:
               port: 5230
             initialDelaySeconds: 15
             periodSeconds: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /api/health
               port: 5230
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /app/data

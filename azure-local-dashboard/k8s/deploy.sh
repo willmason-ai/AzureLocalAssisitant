@@ -9,6 +9,20 @@ ACR_SERVER="cravsnetmon.azurecr.io"
 
 echo "=== Azure Local Dashboard - AKS Deployment ==="
 
+# Pre-flight: verify .env exists
+if [ ! -f ../.env ]; then
+  echo "ERROR: ../.env file not found. Copy .env.example to .env and fill in credentials."
+  exit 1
+fi
+
+# Pre-flight: verify required tools
+for cmd in kubectl az; do
+  if ! command -v $cmd &>/dev/null; then
+    echo "ERROR: '$cmd' not found in PATH"
+    exit 1
+  fi
+done
+
 # 1. Create namespace
 echo "[1/5] Creating namespace..."
 kubectl apply -f namespace.yaml

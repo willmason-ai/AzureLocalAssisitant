@@ -45,6 +45,22 @@ export default function DashboardPage() {
   const faults = Array.isArray(status?.health_faults) ? status.health_faults : [];
   const vmList = Array.isArray(vms?.vms) ? vms.vms : [];
 
+  // Compute cores and RAM from live node data instead of hardcoded values
+  let totalCores = 0;
+  let totalRamGB = 0;
+  if (nodesInfo) {
+    for (const nodeData of Object.values(nodesInfo) as any[]) {
+      if (nodeData && !nodeData.error) {
+        totalCores += Number(nodeData.CsNumberOfProcessors) || 0;
+        const ramBytes = nodeData.PhysicalMemoryBytes || 0;
+        const ramKB = nodeData.CsPhysicallyInstalledMemory || 0;
+        totalRamGB += ramBytes
+          ? Math.round(ramBytes / 1024 / 1024 / 1024)
+          : Math.round(ramKB / 1024 / 1024);
+      }
+    }
+  }
+
   // Calculate storage usage
   let storagePercent: number | undefined;
   if (storage?.storage_pools) {
@@ -61,8 +77,8 @@ export default function DashboardPage() {
       <h2 className="text-lg font-semibold text-slate-100">Cluster Dashboard</h2>
 
       <QuickStats
-        totalCores={32}
-        totalRamGB={1024}
+        totalCores={totalCores || 32}
+        totalRamGB={totalRamGB || 1024}
         vmCount={vmList.length}
         storageUsedPercent={storagePercent}
       />

@@ -15,12 +15,16 @@ def _validate_name(name: str) -> bool:
     return bool(_SAFE_NAME_RE.match(name))
 
 
+def _rg():
+    return current_app.config.get('AZURE_RESOURCE_GROUP', 'rg-azurestack')
+
+
 @aks_bp.route('/clusters', methods=['GET'])
 @require_auth
 def list_clusters():
     ps = get_ps_executor(current_app)
     result = ps.execute(
-        'az aksarc list --resource-group rg-azurestack --output json 2>&1',
+        f'az aksarc list --resource-group {_rg()} --output json 2>&1',
         target_node='any'
     )
     if not result.success:
@@ -36,7 +40,7 @@ def get_cluster(name):
 
     ps = get_ps_executor(current_app)
     result = ps.execute(
-        f'az aksarc show --resource-group rg-azurestack --name {name} --output json 2>&1',
+        f'az aksarc show --resource-group {_rg()} --name {name} --output json 2>&1',
         target_node='any'
     )
     if not result.success:
@@ -53,7 +57,7 @@ def list_nodepools(cluster):
     ps = get_ps_executor(current_app)
     result = ps.execute(
         f'az aksarc nodepool list --cluster-name {cluster} '
-        f'--resource-group rg-azurestack --output json 2>&1',
+        f'--resource-group {_rg()} --output json 2>&1',
         target_node='any'
     )
     if not result.success:
@@ -66,7 +70,7 @@ def list_nodepools(cluster):
 def get_versions():
     ps = get_ps_executor(current_app)
     result = ps.execute(
-        'az aksarc get-versions --resource-group rg-azurestack --output json 2>&1',
+        f'az aksarc get-versions --resource-group {_rg()} --output json 2>&1',
         target_node='any'
     )
     if not result.success:

@@ -61,9 +61,12 @@ def credential_status():
 @require_auth
 def arb_status():
     ps = get_ps_executor(current_app)
+    rg = current_app.config.get('AZURE_RESOURCE_GROUP', 'rg-azurestack')
+    cluster = current_app.config.get('AZURELOCAL_CLUSTER', 'azurestack01')
+    arb_name = f'{cluster}-arcbridge'
     result = ps.execute(
-        'az arcappliance show --resource-group rg-azurestack '
-        '--name azurestack01-arcbridge --only-show-errors 2>&1',
+        f'az arcappliance show --resource-group {rg} '
+        f'--name {arb_name} --only-show-errors 2>&1',
         target_node='any'
     )
     if not result.success:

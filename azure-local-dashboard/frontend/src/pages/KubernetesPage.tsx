@@ -3,9 +3,10 @@ import { Container, Server } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import ErrorAlert from '../components/common/ErrorAlert';
 
 export default function KubernetesPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['aks', 'clusters'],
     queryFn: async () => {
       const { data } = await api.get('/aks/clusters');
@@ -14,6 +15,7 @@ export default function KubernetesPage() {
   });
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-20" />;
+  if (isError) return <ErrorAlert message={(error as any)?.response?.data?.error || (error as any)?.message} onRetry={() => refetch()} />;
 
   const clusters = data?.clusters || [];
 

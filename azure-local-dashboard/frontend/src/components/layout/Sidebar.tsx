@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Download,
@@ -10,6 +11,7 @@ import {
   Server,
 } from 'lucide-react';
 import clsx from 'clsx';
+import api from '../../services/api';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -21,6 +23,15 @@ const navItems = [
 ];
 
 export default function Sidebar() {
+  const { data: config } = useQuery({
+    queryKey: ['config'],
+    queryFn: async () => {
+      const { data } = await api.get('/config');
+      return data;
+    },
+    staleTime: 300000,
+  });
+
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-700 flex flex-col h-screen fixed left-0 top-0">
       <div className="p-4 border-b border-slate-700">
@@ -28,7 +39,7 @@ export default function Sidebar() {
           <Server className="w-6 h-6 text-blue-500" />
           <div>
             <h1 className="text-sm font-bold text-slate-100">Azure Local Ops</h1>
-            <p className="text-xs text-slate-400">azurestack01</p>
+            <p className="text-xs text-slate-400">{config?.cluster_name || 'Loading...'}</p>
           </div>
         </div>
       </div>

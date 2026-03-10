@@ -4,15 +4,17 @@ import { useCredentialStatus, useRepairMoc, useRotateKVA } from '../hooks/useCre
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ConfirmModal from '../components/common/ConfirmModal';
+import ErrorAlert from '../components/common/ErrorAlert';
 import { safeString } from '../utils/safeRender';
 
 export default function CredentialsPage() {
-  const { data: creds, isLoading } = useCredentialStatus();
+  const { data: creds, isLoading, isError, error, refetch } = useCredentialStatus();
   const repairMoc = useRepairMoc();
   const rotateKVA = useRotateKVA();
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-20" />;
+  if (isError) return <ErrorAlert message={(error as any)?.response?.data?.error || (error as any)?.message} onRetry={() => refetch()} />;
 
   const kvaToken = creds?.kva_token;
   const hciReg = creds?.hci_registration;

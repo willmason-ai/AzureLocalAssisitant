@@ -109,7 +109,11 @@ class PowerShellExecutor:
             )
 
         node_fqdn = self._select_node(target_node)
-        logger.info(f"Executing on {node_fqdn}: {command[:200]}...")
+        # Mask any credentials that might appear in the command text
+        log_cmd = command[:200]
+        if self.password and self.password in log_cmd:
+            log_cmd = log_cmd.replace(self.password, '****')
+        logger.info(f"Executing on {node_fqdn}: {log_cmd}...")
 
         import time
         start = time.time()
@@ -126,7 +130,11 @@ class PowerShellExecutor:
         if result.success:
             logger.info(f"Command succeeded on {node_fqdn} via {result.transport_used} ({elapsed:.0f}ms)")
         else:
-            logger.warning(f"Command failed on {node_fqdn} via {result.transport_used} ({elapsed:.0f}ms): {result.stderr[:200]}")
+            # Mask credentials in error output before logging
+            err_msg = result.stderr[:200]
+            if self.password and self.password in err_msg:
+                err_msg = err_msg.replace(self.password, '****')
+            logger.warning(f"Command failed on {node_fqdn} via {result.transport_used} ({elapsed:.0f}ms): {err_msg}")
 
         # Parse JSON output if requested
         if result.success and parse_json:
