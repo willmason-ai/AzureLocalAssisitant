@@ -109,7 +109,10 @@ class PowerShellExecutor:
             )
 
         node_fqdn = self._select_node(target_node)
-        logger.info(f"Executing on {node_fqdn}: {command[:100]}...")
+        logger.info(f"Executing on {node_fqdn}: {command[:200]}...")
+
+        import time
+        start = time.time()
 
         # Try WinRM first
         result = self._execute_winrm(node_fqdn, command, timeout)
@@ -118,6 +121,12 @@ class PowerShellExecutor:
         if not result.success and self.ssh_fallback:
             logger.info(f"WinRM failed for {node_fqdn}, trying SSH fallback...")
             result = self._execute_ssh(node_fqdn, command, timeout)
+
+        elapsed = (time.time() - start) * 1000
+        if result.success:
+            logger.info(f"Command succeeded on {node_fqdn} via {result.transport_used} ({elapsed:.0f}ms)")
+        else:
+            logger.warning(f"Command failed on {node_fqdn} via {result.transport_used} ({elapsed:.0f}ms): {result.stderr[:200]}")
 
         # Parse JSON output if requested
         if result.success and parse_json:
@@ -181,11 +190,26 @@ class PowerShellExecutor:
     def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
         try:
             import winrm
+            import socket
 
             protocol = 'https' if self.use_ssl else 'http'
             port = 5986 if self.use_ssl else 5985
             endpoint = f'{protocol}://{node_fqdn}:{port}/wsman'
             full_username = f'{self.domain}\\{self.username}'
+
+            # Quick TCP connectivity check — fail fast if node is unreachable
+            # instead of blocking for 120+ seconds on WinRM session creation
+            try:
+                sock = socket.create_connection((node_fqdn, port), timeout=10)
+                sock.close()
+            except (socket.timeout, socket.error, OSError) as e:
+                logger.warning(f"Node {node_fqdn}:{port} unreachable (TCP check): {e}")
+                return ExecutionResult(
+                    success=False,
+                    stderr=f"Node {node_fqdn} is unreachable on port {port}: {e}",
+                    node=node_fqdn,
+                    transport_used='winrm'
+                )
 
             session = winrm.Session(
                 endpoint,
@@ -218,6 +242,7 @@ class PowerShellExecutor:
             )
 
     def _execute_ssh(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
+        client = None
         try:
             import paramiko
 
@@ -228,7 +253,7 @@ class PowerShellExecutor:
                 port=22,
                 username=f'{self.domain}\\{self.username}',
                 password=self.password,
-                timeout=30
+                timeout=10
             )
 
             ps_command = f'powershell.exe -NoProfile -Command "{command}"'
@@ -237,8 +262,6 @@ class PowerShellExecutor:
             stdout_text = stdout.read().decode('utf-8', errors='replace')
             stderr_text = stderr.read().decode('utf-8', errors='replace')
             exit_code = stdout.channel.recv_exit_status()
-
-            client.close()
 
             return ExecutionResult(
                 success=(exit_code == 0),
@@ -256,6 +279,12 @@ class PowerShellExecutor:
                 node=node_fqdn,
                 transport_used='ssh'
             )
+        finally:
+            if client:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     def _parse_output(self, raw_output: str):
         if not raw_output or not raw_output.strip():

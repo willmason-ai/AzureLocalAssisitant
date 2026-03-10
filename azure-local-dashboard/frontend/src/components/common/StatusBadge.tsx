@@ -38,7 +38,8 @@ const statusColors: Record<string, string> = {
 };
 
 export default function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
-  const colorClass = statusColors[status.toLowerCase().replace(/\s+/g, '')] || statusColors['unknown'];
+  const statusStr = typeof status === 'string' ? status : String(status ?? 'unknown');
+  const colorClass = statusColors[statusStr.toLowerCase().replace(/\s+/g, '')] || statusColors['unknown'];
 
   return (
     <span
@@ -48,7 +49,7 @@ export default function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm'
       )}
     >
-      {status}
+      {statusStr}
     </span>
   );
 }

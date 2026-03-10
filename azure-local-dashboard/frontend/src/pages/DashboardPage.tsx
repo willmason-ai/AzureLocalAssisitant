@@ -4,15 +4,41 @@ import ClusterSummary from '../components/dashboard/ClusterSummary';
 import QuickStats from '../components/dashboard/QuickStats';
 import AlertsList from '../components/dashboard/AlertsList';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { data: status, isLoading: statusLoading } = useClusterStatus();
+  const { data: status, isLoading: statusLoading, isError: statusError, error: statusErrorObj, refetch: refetchStatus } = useClusterStatus();
   const { data: nodesInfo } = useClusterNodes();
   const { data: vms } = useClusterVMs();
   const { data: storage } = useClusterStorage();
 
   if (statusLoading) {
     return <LoadingSpinner size="lg" className="mt-20" />;
+  }
+
+  if (statusError) {
+    const errMsg = (statusErrorObj as any)?.response?.data?.error
+      || (statusErrorObj as any)?.message
+      || 'Failed to connect to cluster';
+    return (
+      <div className="mt-20 max-w-lg mx-auto bg-slate-800 border border-slate-700 rounded-lg p-6 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+        <h3 className="text-base font-semibold text-slate-100 mb-2">Cluster Unreachable</h3>
+        <p className="text-sm text-slate-400 mb-2">
+          Could not fetch cluster status. The cluster nodes may be unreachable from this environment.
+        </p>
+        <pre className="text-xs text-red-400 bg-slate-900 rounded p-3 mb-4 text-left overflow-auto max-h-24">
+          {errMsg}
+        </pre>
+        <button
+          onClick={() => refetchStatus()}
+          className="flex items-center gap-2 mx-auto px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Retry
+        </button>
+      </div>
+    );
   }
 
   const nodes = Array.isArray(status?.nodes) ? status.nodes : status?.nodes ? [status.nodes] : [];

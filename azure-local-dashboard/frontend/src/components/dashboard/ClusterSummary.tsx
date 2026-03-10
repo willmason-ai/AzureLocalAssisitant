@@ -7,7 +7,7 @@ interface ClusterSummaryProps {
 }
 
 export default function ClusterSummary({ nodes, healthFaults }: ClusterSummaryProps) {
-  const onlineCount = nodes.filter(n => n.State?.toLowerCase() === 'up').length;
+  const onlineCount = nodes.filter(n => String(n.State ?? '').toLowerCase() === 'up').length;
   const totalCount = nodes.length;
   const isHealthy = onlineCount === totalCount && healthFaults.length === 0;
 

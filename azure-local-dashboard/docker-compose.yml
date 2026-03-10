@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   azure-local-dashboard:
     build:
@@ -13,6 +12,9 @@ services:
       - dashboard-data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+    dns:
+      - 10.20.10.5
+      - 8.8.8.8
 
 volumes:
   dashboard-data:

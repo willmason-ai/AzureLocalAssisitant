@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Settings, CheckCircle, XCircle, Loader2, Wifi,
-  HardDrive, Clock, Shield, AlertTriangle, ArrowUpCircle
+  HardDrive, Clock, Shield, AlertTriangle, ArrowUpCircle,
+  Key, Plus, Trash2, TestTube
 } from 'lucide-react';
 import api from '../services/api';
+import { safeString } from '../utils/safeRender';
 
 interface ClusterVolume {
   Name: string;
@@ -48,11 +50,15 @@ function getUsageTextColor(percentUsed: number): string {
 }
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
   const [testResults, setTestResults] = useState<Record<string, any> | null>(null);
   const [testing, setTesting] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [showAddCred, setShowAddCred] = useState(false);
+  const [newCredName, setNewCredName] = useState('');
+  const [newCredFields, setNewCredFields] = useState({ username: '', password: '', domain: '', target_node: '' });
+  const [credTestResults, setCredTestResults] = useState<Record<string, any>>({});
 
-  // Live clock
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -75,6 +81,35 @@ export default function SettingsPage() {
     refetchInterval: 60000,
   });
 
+  const { data: credSets } = useQuery({
+    queryKey: ['credential-sets'],
+    queryFn: async () => {
+      const { data } = await api.get('/credential-sets');
+      return data;
+    },
+  });
+
+  const saveCred = useMutation({
+    mutationFn: async ({ section, values }: { section: string; values: Record<string, string> }) => {
+      const { data } = await api.put(`/credential-sets/${section}`, values);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credential-sets'] });
+      setShowAddCred(false);
+      setNewCredName('');
+      setNewCredFields({ username: '', password: '', domain: '', target_node: '' });
+    },
+  });
+
+  const deleteCred = useMutation({
+    mutationFn: async (section: string) => {
+      const { data } = await api.delete(`/credential-sets/${section}`);
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credential-sets'] }),
+  });
+
   const testConnection = async () => {
     setTesting(true);
     try {
@@ -87,8 +122,19 @@ export default function SettingsPage() {
     }
   };
 
+  const testCredSet = async (section: string) => {
+    try {
+      setCredTestResults(prev => ({ ...prev, [section]: { testing: true } }));
+      const { data } = await api.post(`/credential-sets/${section}/test`);
+      setCredTestResults(prev => ({ ...prev, [section]: data }));
+    } catch (err: any) {
+      setCredTestResults(prev => ({ ...prev, [section]: { error: err.message } }));
+    }
+  };
+
   const volumes = overview?.cluster_volumes || [];
   const normalizedVolumes = Array.isArray(volumes) ? volumes : [volumes];
+  const credentialSets = credSets?.credential_sets || {};
 
   return (
     <div className="space-y-6">
@@ -173,6 +219,153 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* Stored Credentials */}
+      <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Key className="w-5 h-5 text-purple-400" />
+            <h3 className="text-sm font-semibold text-slate-100">Stored Credentials</h3>
+          </div>
+          <button
+            onClick={() => setShowAddCred(!showAddCred)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+            Add
+          </button>
+        </div>
+
+        {/* Add credential form */}
+        {showAddCred && (
+          <div className="bg-slate-900 rounded-lg p-3 mb-4 space-y-3">
+            <input
+              type="text"
+              placeholder="Credential set name (e.g. 'backup-admin')"
+              value={newCredName}
+              onChange={e => setNewCredName(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                placeholder="Username"
+                value={newCredFields.username}
+                onChange={e => setNewCredFields(p => ({ ...p, username: e.target.value }))}
+                className="px-3 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={newCredFields.password}
+                onChange={e => setNewCredFields(p => ({ ...p, password: e.target.value }))}
+                className="px-3 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500"
+              />
+              <input
+                type="text"
+                placeholder="Domain (optional)"
+                value={newCredFields.domain}
+                onChange={e => setNewCredFields(p => ({ ...p, domain: e.target.value }))}
+                className="px-3 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500"
+              />
+              <input
+                type="text"
+                placeholder="Target node (optional)"
+                value={newCredFields.target_node}
+                onChange={e => setNewCredFields(p => ({ ...p, target_node: e.target.value }))}
+                className="px-3 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddCred(false)}
+                className="px-3 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (newCredName.trim()) {
+                    const values: Record<string, string> = {};
+                    Object.entries(newCredFields).forEach(([k, v]) => {
+                      if (v.trim()) values[k] = v.trim();
+                    });
+                    saveCred.mutate({ section: newCredName.trim(), values });
+                  }
+                }}
+                disabled={!newCredName.trim()}
+                className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 text-white rounded transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Existing credential sets */}
+        {Object.keys(credentialSets).length === 0 ? (
+          <p className="text-xs text-slate-500">
+            No stored credentials. Default connection uses environment variables.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {Object.entries(credentialSets).map(([section, cred]: [string, any]) => {
+              const testResult = credTestResults[section];
+              return (
+                <div key={section} className="bg-slate-900 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-slate-200">{section}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => testCredSet(section)}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                      >
+                        <TestTube className="w-3 h-3" />
+                        Test
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete credential set "${section}"?`)) {
+                            deleteCred.mutate(section);
+                          }
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                    {Object.entries(cred).map(([k, v]: [string, any]) => (
+                      <div key={k} className="flex justify-between">
+                        <span className="text-slate-500">{k}</span>
+                        <span className="text-slate-400 font-mono">{String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {testResult && (
+                    <div className="mt-2 pt-2 border-t border-slate-700 text-[11px]">
+                      {testResult.testing ? (
+                        <span className="text-slate-500">Testing...</span>
+                      ) : testResult.reachable ? (
+                        <span className="text-green-400 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Connected to {testResult.hostname} via {testResult.transport}
+                        </span>
+                      ) : (
+                        <span className="text-red-400 flex items-center gap-1">
+                          <XCircle className="w-3 h-3" />
+                          {testResult.error || 'Connection failed'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* System Overview: Time, Version, Storage */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
         <div className="flex items-center gap-2 mb-4">
@@ -235,10 +428,10 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-slate-100">
-                    {overview.current_version.DisplayName}
+                    {safeString(overview.current_version.DisplayName)}
                   </p>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    v{overview.current_version.Version}
+                    v{safeString(overview.current_version.Version)}
                   </p>
                 </div>
                 <div>
@@ -259,18 +452,17 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-500">Version information unavailable</p>
             )}
 
-            {/* Pending updates */}
             {overview?.pending_updates && overview.pending_updates.length > 0 && (
               <div className="mt-3 pt-3 border-t border-slate-700 space-y-2">
                 {overview.pending_updates.map((update, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-slate-300">{update.DisplayName}</span>
+                      <span className="text-slate-300">{safeString(update.DisplayName)}</span>
                     </div>
-                    <span className="text-slate-500 font-mono">v{update.Version}</span>
+                    <span className="text-slate-500 font-mono">v{safeString(update.Version)}</span>
                     <span className="px-1.5 py-0.5 bg-amber-900/30 text-amber-400 rounded text-[10px] uppercase">
-                      {update.State}
+                      {safeString(update.State)}
                     </span>
                   </div>
                 ))}
@@ -292,7 +484,7 @@ export default function SettingsPage() {
             </div>
           ) : overview?.errors?.volumes ? (
             <div className="bg-slate-900 rounded-lg p-3 text-xs text-red-400">
-              Failed to load storage: {overview.errors.volumes}
+              Failed to load storage: {safeString(overview.errors.volumes)}
             </div>
           ) : normalizedVolumes.length === 0 ? (
             <div className="bg-slate-900 rounded-lg p-3 text-xs text-slate-500">
@@ -315,12 +507,11 @@ export default function SettingsPage() {
                           {vol.VolumeFriendlyName || vol.Name}
                         </span>
                       </div>
-                      <span className={`text-xs font-medium ${vol.State === 'Online' ? 'text-green-400' : 'text-red-400'}`}>
-                        {vol.State}
+                      <span className={`text-xs font-medium ${String(vol.State) === 'Online' ? 'text-green-400' : 'text-red-400'}`}>
+                        {safeString(vol.State)}
                       </span>
                     </div>
 
-                    {/* Usage bar */}
                     <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
                       <div
                         className={`h-2 rounded-full transition-all ${getUsageColor(percentUsed)}`}
@@ -354,7 +545,8 @@ export default function SettingsPage() {
         <h3 className="text-sm font-semibold text-slate-100 mb-2">Configuration</h3>
         <p className="text-xs text-slate-400">
           Connection settings are configured via environment variables in the .env file.
-          Restart the container after making changes.
+          Restart the container after making changes. Stored credentials above are AES-256-GCM
+          encrypted and persisted to the data volume.
         </p>
       </div>
     </div>

@@ -1,9 +1,12 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from flask import Blueprint, request, jsonify, current_app
 
 from backend.auth.middleware import require_auth
+
+logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -15,7 +18,10 @@ def login():
         return jsonify({'error': 'Password is required'}), 400
 
     if data['password'] != current_app.config['DASHBOARD_PASSWORD']:
+        logger.warning(f"Failed login attempt from {request.remote_addr}")
         return jsonify({'error': 'Invalid password'}), 401
+
+    logger.info(f"Successful login from {request.remote_addr}")
 
     expiry = datetime.now(timezone.utc) + timedelta(
         hours=current_app.config['JWT_EXPIRY_HOURS']

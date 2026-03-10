@@ -4,6 +4,7 @@ import { useCredentialStatus, useRepairMoc, useRotateKVA } from '../hooks/useCre
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ConfirmModal from '../components/common/ConfirmModal';
+import { safeString } from '../utils/safeRender';
 
 export default function CredentialsPage() {
   const { data: creds, isLoading } = useCredentialStatus();
@@ -17,12 +18,19 @@ export default function CredentialsPage() {
   const hciReg = creds?.hci_registration;
   const mocNodes = creds?.moc_nodes;
 
-  // Calculate KVA token age
+  // Calculate KVA token age — handle both ISO string and PS nested {DateTime, Ticks} object
   let tokenAgeDays: number | null = null;
   if (kvaToken?.LastWriteTime) {
-    const lastWrite = new Date(kvaToken.LastWriteTime);
-    const now = new Date();
-    tokenAgeDays = Math.floor((now.getTime() - lastWrite.getTime()) / (1000 * 60 * 60 * 24));
+    let rawTime = kvaToken.LastWriteTime;
+    // If PS returned a nested object like {DateTime: "...", Ticks: ...}, extract DateTime
+    if (typeof rawTime === 'object' && rawTime !== null && 'DateTime' in rawTime) {
+      rawTime = rawTime.DateTime;
+    }
+    const lastWrite = new Date(rawTime);
+    if (!isNaN(lastWrite.getTime())) {
+      const now = new Date();
+      tokenAgeDays = Math.floor((now.getTime() - lastWrite.getTime()) / (1000 * 60 * 60 * 24));
+    }
   }
 
   const tokenAgeColor = tokenAgeDays === null
@@ -81,7 +89,7 @@ export default function CredentialsPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-slate-400">Last Updated</span>
-                <span className="text-slate-300">{kvaToken?.LastWriteTime || 'N/A'}</span>
+                <span className="text-slate-300">{safeString(kvaToken?.LastWriteTime)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-slate-400">Token Age</span>
@@ -145,7 +153,7 @@ export default function CredentialsPage() {
             <div className="space-y-2">
               {mocNodes.map((node: any, i: number) => (
                 <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300">{node.name || node.fqdn}</span>
+                  <span className="text-slate-300">{safeString(node.name || node.fqdn)}</span>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={node.health || 'Unknown'} />
                     <StatusBadge status={node.state || 'Unknown'} />

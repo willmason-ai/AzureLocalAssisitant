@@ -1,10 +1,16 @@
 import os
+import hashlib
 
 
 class Config:
     # Authentication
     DASHBOARD_PASSWORD = os.getenv('DASHBOARD_PASSWORD', 'admin')
-    JWT_SECRET = os.getenv('JWT_SECRET', os.urandom(32).hex())
+    # JWT_SECRET must be stable across all Gunicorn workers. If not set via env,
+    # derive a deterministic secret from the dashboard password so all workers agree.
+    JWT_SECRET = os.getenv(
+        'JWT_SECRET',
+        hashlib.sha256(f"azure-local-dashboard-{os.getenv('DASHBOARD_PASSWORD', 'admin')}".encode()).hexdigest()
+    )
     JWT_EXPIRY_HOURS = int(os.getenv('JWT_EXPIRY_HOURS', '24'))
 
     # Credential Encryption
@@ -31,9 +37,11 @@ class Config:
     AZURE_SUBSCRIPTION_ID = os.getenv('AZURE_SUBSCRIPTION_ID', 'aaaaa147-fd6e-48fb-9a66-d044700dca17')
     AZURE_RESOURCE_GROUP = os.getenv('AZURE_RESOURCE_GROUP', 'rg-azurestack')
     AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '2a731c61-a2b2-4661-8409-5b861cf40d0c')
+    AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
+    AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 
     # App
-    PORT = int(os.getenv('PORT', '3000'))
+    PORT = int(os.getenv('PORT', '5230'))
     DATA_DIR = os.getenv('DATA_DIR', '/app/data')
 
     # Scheduler intervals (seconds)

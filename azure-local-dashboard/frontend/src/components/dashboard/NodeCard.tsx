@@ -1,5 +1,6 @@
 import { Server, Cpu, MemoryStick, Clock } from 'lucide-react';
 import StatusBadge from '../common/StatusBadge';
+import { safeString } from '../../utils/safeRender';
 import type { ClusterNode, NodeInfo } from '../../types';
 
 interface NodeCardProps {
@@ -29,12 +30,20 @@ export default function NodeCard({ node, info }: NodeCardProps) {
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <MemoryStick className="w-3.5 h-3.5" />
             <span>
-              {Math.round(((info as NodeInfo).CsPhysicallyInstalledMemory || 0) / 1024 / 1024)} GB RAM
+              {(() => {
+                const ni = info as NodeInfo;
+                const ram = (ni as any).PhysicalMemoryBytes || ni.CsPhysicallyInstalledMemory || 0;
+                // PhysicalMemoryBytes is in bytes, CsPhysicallyInstalledMemory was in KB
+                const gbRam = (ni as any).PhysicalMemoryBytes
+                  ? Math.round(ram / 1024 / 1024 / 1024)
+                  : Math.round(ram / 1024 / 1024);
+                return gbRam > 0 ? `${gbRam} GB RAM` : 'RAM: N/A';
+              })()}
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Clock className="w-3.5 h-3.5" />
-            <span>Uptime: {(info as NodeInfo).OsUptime || 'N/A'}</span>
+            <span>Uptime: {safeString((info as NodeInfo).OsUptime)}</span>
           </div>
           <div className="text-xs text-slate-500 mt-2">
             {(info as NodeInfo).WindowsProductName} {(info as NodeInfo).OsVersion}

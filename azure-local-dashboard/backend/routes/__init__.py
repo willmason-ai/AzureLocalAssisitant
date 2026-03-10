@@ -7,6 +7,8 @@ def register_blueprints(app):
     from .ai import ai_bp
     from .settings import settings_bp
     from .system import system_bp
+    from .history import history_bp
+    from .credential_mgmt import credential_mgmt_bp
     from backend.auth.routes import auth_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -18,3 +20,5 @@ def register_blueprints(app):
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
     app.register_blueprint(system_bp, url_prefix='/api')
+    app.register_blueprint(history_bp, url_prefix='/api/history')
+    app.register_blueprint(credential_mgmt_bp, url_prefix='/api/credential-sets')

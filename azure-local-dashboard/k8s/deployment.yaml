@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-local-dashboard
+  namespace: azure-local-ops
+  labels:
+    app: azure-local-dashboard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Required: PVC is ReadWriteOnce, can't attach to two nodes during rolling update
+  selector:
+    matchLabels:
+      app: azure-local-dashboard
+  template:
+    metadata:
+      labels:
+        app: azure-local-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: cravsnetmon.azurecr.io/azure-local-dashboard:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5230
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: dashboard-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5230
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5230
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dashboard-data
+      imagePullSecrets:
+        - name: acr-secret

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import axios from 'axios';
 import api from '../services/api';
 
 interface AuthContextType {
@@ -17,7 +18,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
     if (token) {
-      api.get('/auth/verify')
+      // Use a raw axios call for verify to avoid the 401 interceptor
+      // triggering a redirect race during initial token validation
+      axios.get('/api/auth/verify', {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000,
+      })
         .then(() => setIsAuthenticated(true))
         .catch(() => {
           localStorage.removeItem('auth_token');
