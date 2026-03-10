@@ -4,12 +4,21 @@ import time
 
 from flask import Flask, send_from_directory, request, g
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from dotenv import load_dotenv
 
 from backend.config import Config
 from backend.routes import register_blueprints
 
 logger = logging.getLogger(__name__)
+
+# Module-level SocketIO instance so scheduler and other modules can import it
+socketio = SocketIO()
+
+
+def get_socketio():
+    """Return the shared SocketIO instance."""
+    return socketio
 
 
 def setup_logging(app):
@@ -38,10 +47,35 @@ def create_app(config_class=Config):
 
     app.config.from_object(config_class)
     setup_logging(app)
+
+    # BUG-005: Refuse to start with missing security credentials
+    required_vars = {
+        'DASHBOARD_PASSWORD': app.config.get('DASHBOARD_PASSWORD', ''),
+        'JWT_SECRET': app.config.get('JWT_SECRET', ''),
+        'CREDENTIAL_MASTER_KEY': app.config.get('CREDENTIAL_MASTER_KEY', ''),
+    }
+    missing = [name for name, value in required_vars.items() if not value]
+    if missing:
+        msg = (
+            f"Required environment variable(s) not set: {', '.join(missing)}. "
+            "Set these in your .env file or environment before starting the dashboard."
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
     # BUG-014: Restrict CORS to configured origins (empty = same-origin only)
     cors_origins = app.config.get('CORS_ORIGINS', '')
     allowed_origins = [o.strip() for o in cors_origins.split(',') if o.strip()] if cors_origins else []
     CORS(app, resources={r"/api/*": {"origins": allowed_origins or "*"}})
+
+    # Initialize SocketIO for real-time push updates
+    socketio.init_app(
+        app,
+        cors_allowed_origins=allowed_origins or "*",
+        async_mode='gevent',
+        logger=False,
+        engineio_logger=False,
+    )
+    logger.info("SocketIO initialized (async_mode=gevent)")
 
     # Request logging — log every API call with timing
     @app.before_request

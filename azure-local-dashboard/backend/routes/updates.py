@@ -6,6 +6,9 @@ from backend.utils.enums import resolve_enums, SOLUTION_UPDATE_STATE, SOLUTION_U
 
 updates_bp = Blueprint('updates', __name__)
 
+# Cache TTL thresholds (seconds)
+UPDATES_CACHE_TTL = 300
+
 
 def _ensure_list(data):
     """BUG-029: PowerShell ConvertTo-Json returns object for single items. Normalize to list."""
@@ -16,9 +19,22 @@ def _ensure_list(data):
     return [data]
 
 
+def _get_scheduler():
+    """Return the HealthScheduler from the app, or None."""
+    return getattr(current_app, '_scheduler', None)
+
+
 @updates_bp.route('', methods=['GET'])
 @require_auth
 def list_updates():
+    scheduler = _get_scheduler()
+
+    if scheduler is not None and scheduler.get_cache_age('updates') < UPDATES_CACHE_TTL:
+        return jsonify({
+            'updates': _ensure_list(scheduler.get_cache('updates')),
+            'from_cache': True,
+        })
+
     ps = get_ps_executor(current_app)
     result = ps.execute(
         'Get-SolutionUpdate | Select-Object DisplayName, State, Version, '
@@ -29,12 +45,20 @@ def list_updates():
         return jsonify({'error': result.stderr}), 500
     updates = _ensure_list(result.parsed)
     resolve_enums(updates, {'State': SOLUTION_UPDATE_STATE})
-    return jsonify({'updates': updates})
+    return jsonify({'updates': updates, 'from_cache': False})
 
 
 @updates_bp.route('/current', methods=['GET'])
 @require_auth
 def current_update():
+    scheduler = _get_scheduler()
+
+    if scheduler is not None and scheduler.get_cache_age('update_current') < UPDATES_CACHE_TTL:
+        return jsonify({
+            'current_run': scheduler.get_cache('update_current'),
+            'from_cache': True,
+        })
+
     ps = get_ps_executor(current_app)
     result = ps.execute(
         'Get-SolutionUpdateRun | Sort-Object StartTimeUtc -Descending | '
@@ -46,12 +70,20 @@ def current_update():
         return jsonify({'error': result.stderr}), 500
     if result.parsed:
         resolve_enums(result.parsed, {'State': SOLUTION_UPDATE_RUN_STATE})
-    return jsonify({'current_run': result.parsed})
+    return jsonify({'current_run': result.parsed, 'from_cache': False})
 
 
 @updates_bp.route('/history', methods=['GET'])
 @require_auth
 def update_history():
+    scheduler = _get_scheduler()
+
+    if scheduler is not None and scheduler.get_cache_age('update_history') < UPDATES_CACHE_TTL:
+        return jsonify({
+            'history': _ensure_list(scheduler.get_cache('update_history')),
+            'from_cache': True,
+        })
+
     ps = get_ps_executor(current_app)
     result = ps.execute(
         'Get-SolutionUpdateRun | Sort-Object StartTimeUtc -Descending | '
@@ -63,7 +95,7 @@ def update_history():
         return jsonify({'error': result.stderr}), 500
     hist = _ensure_list(result.parsed)
     resolve_enums(hist, {'State': SOLUTION_UPDATE_RUN_STATE})
-    return jsonify({'history': hist})
+    return jsonify({'history': hist, 'from_cache': False})
 
 
 @updates_bp.route('/environment', methods=['GET'])

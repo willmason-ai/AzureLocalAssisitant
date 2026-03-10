@@ -1,7 +1,8 @@
 import os
-from backend.app import create_app, get_ps_executor, get_history_store
+from backend.app import create_app, get_ps_executor, get_history_store, get_socketio
 
 app = create_app()
+socketio = get_socketio()
 
 # Start the background health scheduler with history persistence
 try:
@@ -17,4 +18,13 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Scheduler failed to start: {e}")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=app.config.get('PORT', 5230), debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true')
+    # Use socketio.run() instead of app.run() so WebSocket transport works in dev mode.
+    # For production with gunicorn, add:
+    #   --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=app.config.get('PORT', 5230),
+        debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true',
+        allow_unsafe_werkzeug=True,
+    )

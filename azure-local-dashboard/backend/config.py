@@ -3,18 +3,19 @@ import hashlib
 
 
 class Config:
-    # Authentication
-    DASHBOARD_PASSWORD = os.getenv('DASHBOARD_PASSWORD', 'admin')
+    # Authentication — no insecure defaults; these MUST be set via environment variables
+    DASHBOARD_PASSWORD = os.getenv('DASHBOARD_PASSWORD', '')
     # JWT_SECRET must be stable across all Gunicorn workers. If not set via env,
     # derive a deterministic secret from the dashboard password so all workers agree.
     JWT_SECRET = os.getenv(
         'JWT_SECRET',
-        hashlib.sha256(f"azure-local-dashboard-{os.getenv('DASHBOARD_PASSWORD', 'admin')}".encode()).hexdigest()
+        hashlib.sha256(f"azure-local-dashboard-{os.getenv('DASHBOARD_PASSWORD', '')}".encode()).hexdigest()
+        if os.getenv('DASHBOARD_PASSWORD', '') else ''
     )
     JWT_EXPIRY_HOURS = int(os.getenv('JWT_EXPIRY_HOURS', '24'))
 
-    # Credential Encryption
-    CREDENTIAL_MASTER_KEY = os.getenv('CREDENTIAL_MASTER_KEY', 'change-me-in-production')
+    # Credential Encryption — MUST be set via environment variable
+    CREDENTIAL_MASTER_KEY = os.getenv('CREDENTIAL_MASTER_KEY', '')
 
     # Claude API
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')

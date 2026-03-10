@@ -10,9 +10,34 @@ from backend.utils.enums import (
 credentials_bp = Blueprint('credentials', __name__)
 
 
+CREDENTIALS_CACHE_TTL = 3600
+
+
+def _get_scheduler():
+    """Return the HealthScheduler from the app, or None."""
+    return getattr(current_app, '_scheduler', None)
+
+
 @credentials_bp.route('/status', methods=['GET'])
 @require_auth
 def credential_status():
+    scheduler = _get_scheduler()
+
+    # Try cache first — credentials change infrequently, 1-hour TTL
+    if scheduler is not None:
+        kva_age = scheduler.get_cache_age('kva_token')
+        hci_age = scheduler.get_cache_age('hci_registration')
+        moc_age = scheduler.get_cache_age('moc_nodes')
+        if all(age < CREDENTIALS_CACHE_TTL for age in (kva_age, hci_age, moc_age)):
+            return jsonify({
+                'kva_token': scheduler.get_cache('kva_token'),
+                'hci_registration': scheduler.get_cache('hci_registration'),
+                'moc_nodes': scheduler.get_cache('moc_nodes'),
+                'from_cache': True,
+                'cache_age_seconds': round(max(kva_age, hci_age, moc_age), 1),
+            })
+
+    # Cache miss — fall back to live PS calls
     ps = get_ps_executor(current_app)
     results = {}
 
@@ -54,6 +79,7 @@ def credential_status():
         })
     results['moc_nodes'] = moc_result.parsed if moc_result.success else {'error': moc_result.stderr}
 
+    results['from_cache'] = False
     return jsonify(results)
 
 

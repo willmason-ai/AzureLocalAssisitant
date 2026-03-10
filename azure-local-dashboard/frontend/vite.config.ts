@@ -13,11 +13,27 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true
+      },
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        ws: true
       }
     }
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'query-vendor': ['@tanstack/react-query'],
+          'chart-vendor': ['recharts'],
+          'ui-vendor': ['lucide-react', 'clsx'],
+          'markdown-vendor': ['react-markdown', 'react-syntax-highlighter', 'remark-gfm'],
+        },
+      },
+    },
   }
 })

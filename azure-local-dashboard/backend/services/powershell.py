@@ -1,5 +1,8 @@
 import json
 import logging
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 # BUG-043: Import at module level so missing packages are caught at startup
@@ -98,6 +101,9 @@ class ExecutionResult:
 
 
 class PowerShellExecutor:
+    # Maximum age of a cached WinRM session before it is discarded (seconds)
+    SESSION_CACHE_TTL = 300
+
     def __init__(self, config):
         self.nodes = {
             'dell-as01': config.get('AZURELOCAL_NODE1', 'dell-as01.presidiorocks.com'),
@@ -110,6 +116,11 @@ class PowerShellExecutor:
         self.transport = config.get('WINRM_TRANSPORT', 'ntlm')
         self.use_ssl = config.get('WINRM_USE_SSL', True)
         self.ssh_fallback = config.get('SSH_FALLBACK_ENABLED', True)
+
+        # WinRM session pool — keyed by node FQDN
+        self._session_cache = {}
+        self._session_cache_time = {}
+        self._session_lock = threading.Lock()
 
     def execute(self, command: str, target_node: str = 'any',
                 timeout: int = 120, parse_json: bool = True) -> ExecutionResult:
@@ -135,7 +146,6 @@ class PowerShellExecutor:
             log_cmd = log_cmd.replace(self.password, '****')
         logger.info(f"Executing on {node_fqdn}: {log_cmd}...")
 
-        import time
         start = time.time()
 
         # Try WinRM first
@@ -166,6 +176,48 @@ class PowerShellExecutor:
         results = {}
         for name in self.nodes:
             results[name] = self.execute(command, target_node=name, timeout=timeout)
+        return results
+
+    def execute_parallel(self, commands: list, max_workers: int = 4) -> list:
+        """Execute multiple PowerShell commands concurrently.
+
+        Each item in *commands* is a dict with:
+            command     (str)  – the PowerShell command
+            target_node (str)  – node alias or 'any'
+            timeout     (int)  – per-command timeout in seconds (default 120)
+
+        Returns a list of ExecutionResult in the same order as the input.
+        """
+        if not commands:
+            return []
+
+        results = [None] * len(commands)
+
+        def _run(index, cmd_spec):
+            return index, self.execute(
+                command=cmd_spec['command'],
+                target_node=cmd_spec.get('target_node', 'any'),
+                timeout=cmd_spec.get('timeout', 120),
+            )
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(commands))) as pool:
+            futures = {
+                pool.submit(_run, i, spec): i
+                for i, spec in enumerate(commands)
+            }
+            for future in as_completed(futures):
+                try:
+                    idx, result = future.result()
+                    results[idx] = result
+                except Exception as e:
+                    idx = futures[future]
+                    logger.error(f"Parallel execution slot {idx} failed: {e}")
+                    results[idx] = ExecutionResult(
+                        success=False,
+                        stderr=str(e),
+                        exit_code=-1,
+                    )
+
         return results
 
     def _select_node(self, target: str) -> str:
@@ -224,62 +276,110 @@ class PowerShellExecutor:
             "requires_confirmation": False,
         }
 
-    def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
+    def _get_or_create_winrm_session(self, node_fqdn: str, timeout: int):
+        """Return a cached WinRM session for *node_fqdn*, creating a new one if needed.
+
+        Sessions are cached by node FQDN and expire after SESSION_CACHE_TTL seconds.
+        """
+        import socket
+
+        if winrm is None:
+            raise ImportError("pywinrm is not installed")
+
+        protocol = 'https' if self.use_ssl else 'http'
+        port = 5986 if self.use_ssl else 5985
+        endpoint = f'{protocol}://{node_fqdn}:{port}/wsman'
+        full_username = f'{self.domain}\\{self.username}'
+
+        with self._session_lock:
+            cached_session = self._session_cache.get(node_fqdn)
+            cached_time = self._session_cache_time.get(node_fqdn, 0)
+            session_age = time.time() - cached_time
+
+            if cached_session is not None and session_age < self.SESSION_CACHE_TTL:
+                logger.debug(f"Reusing cached WinRM session for {node_fqdn} (age {session_age:.0f}s)")
+                return cached_session, port
+
+        # No valid cached session — do a quick TCP check then create a new one
         try:
-            import socket
-            if winrm is None:
-                raise ImportError("pywinrm is not installed")
+            sock = socket.create_connection((node_fqdn, port), timeout=10)
+            sock.close()
+        except (socket.timeout, socket.error, OSError) as e:
+            logger.warning(f"Node {node_fqdn}:{port} unreachable (TCP check): {e}")
+            raise ConnectionError(f"Node {node_fqdn} is unreachable on port {port}: {e}")
 
-            protocol = 'https' if self.use_ssl else 'http'
-            port = 5986 if self.use_ssl else 5985
-            endpoint = f'{protocol}://{node_fqdn}:{port}/wsman'
-            full_username = f'{self.domain}\\{self.username}'
+        # BUG-016: SSL cert validation disabled — acceptable for lab/internal WinRM
+        session = winrm.Session(
+            endpoint,
+            auth=(full_username, self.password),
+            transport=self.transport,
+            server_cert_validation='ignore',
+            operation_timeout_sec=timeout,
+            read_timeout_sec=timeout + 30
+        )
 
-            # Quick TCP connectivity check — fail fast if node is unreachable
-            # instead of blocking for 120+ seconds on WinRM session creation
+        with self._session_lock:
+            self._session_cache[node_fqdn] = session
+            self._session_cache_time[node_fqdn] = time.time()
+
+        logger.debug(f"Created new WinRM session for {node_fqdn}")
+        return session, port
+
+    def _invalidate_session(self, node_fqdn: str):
+        """Remove a cached session so the next call creates a fresh one."""
+        with self._session_lock:
+            self._session_cache.pop(node_fqdn, None)
+            self._session_cache_time.pop(node_fqdn, None)
+
+    def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
+        for attempt in range(2):
             try:
-                sock = socket.create_connection((node_fqdn, port), timeout=10)
-                sock.close()
-            except (socket.timeout, socket.error, OSError) as e:
-                logger.warning(f"Node {node_fqdn}:{port} unreachable (TCP check): {e}")
+                session, port = self._get_or_create_winrm_session(node_fqdn, timeout)
+
+                result = session.run_ps(command)
+                stdout = result.std_out.decode('utf-8', errors='replace')
+                stderr = result.std_err.decode('utf-8', errors='replace')
+
+                return ExecutionResult(
+                    success=(result.status_code == 0),
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=result.status_code,
+                    node=node_fqdn,
+                    transport_used='winrm'
+                )
+            except ConnectionError as e:
+                # TCP-level unreachable — no point retrying
                 return ExecutionResult(
                     success=False,
-                    stderr=f"Node {node_fqdn} is unreachable on port {port}: {e}",
+                    stderr=str(e),
+                    node=node_fqdn,
+                    transport_used='winrm'
+                )
+            except Exception as e:
+                if attempt == 0:
+                    # First failure — invalidate the cached session and retry with a fresh one
+                    logger.warning(
+                        f"WinRM cached session failed for {node_fqdn}, retrying with new session: {e}"
+                    )
+                    self._invalidate_session(node_fqdn)
+                    continue
+                # Second attempt also failed
+                logger.error(f"WinRM execution failed on {node_fqdn} (after retry): {e}")
+                return ExecutionResult(
+                    success=False,
+                    stderr=str(e),
                     node=node_fqdn,
                     transport_used='winrm'
                 )
 
-            # BUG-016: SSL cert validation disabled — acceptable for lab/internal WinRM
-            # with self-signed certs. For production, configure proper CA trust.
-            session = winrm.Session(
-                endpoint,
-                auth=(full_username, self.password),
-                transport=self.transport,
-                server_cert_validation='ignore',
-                operation_timeout_sec=timeout,
-                read_timeout_sec=timeout + 30
-            )
-
-            result = session.run_ps(command)
-            stdout = result.std_out.decode('utf-8', errors='replace')
-            stderr = result.std_err.decode('utf-8', errors='replace')
-
-            return ExecutionResult(
-                success=(result.status_code == 0),
-                stdout=stdout,
-                stderr=stderr,
-                exit_code=result.status_code,
-                node=node_fqdn,
-                transport_used='winrm'
-            )
-        except Exception as e:
-            logger.error(f"WinRM execution failed on {node_fqdn}: {e}")
-            return ExecutionResult(
-                success=False,
-                stderr=str(e),
-                node=node_fqdn,
-                transport_used='winrm'
-            )
+        # Should not reach here, but just in case
+        return ExecutionResult(
+            success=False,
+            stderr="Unexpected error in WinRM execution loop",
+            node=node_fqdn,
+            transport_used='winrm'
+        )
 
     def _execute_ssh(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
         client = None
