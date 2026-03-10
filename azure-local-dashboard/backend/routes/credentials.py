@@ -94,7 +94,13 @@ def rotate_kva():
     if not data or not data.get('confirm'):
         return jsonify({'error': 'Confirmation required. Send {"confirm": true}'}), 400
 
-    validity_days = data.get('validity_days', 365)
+    try:
+        validity_days = int(data.get('validity_days', 365))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'validity_days must be a number'}), 400
+    if not 1 <= validity_days <= 3650:
+        return jsonify({'error': 'validity_days must be between 1 and 3650'}), 400
+
     ps = get_ps_executor(current_app)
     result = ps.execute(
         f'Update-MocIdentity -name "Appliance" -validityDays {validity_days} '

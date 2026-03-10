@@ -33,7 +33,7 @@ export default function CommandBlock({ toolCall, onExecute, onReject }: CommandB
       })
         .then(res => res.json())
         .then(data => setSafety(data))
-        .catch(() => setSafety({ level: 'safe', allowed: true, reason: '' }));
+        .catch(() => setSafety({ level: 'blocked', allowed: false, reason: 'Safety check unavailable — blocking execution as a precaution.' }));
     }
   }, [input.command, status]);
 

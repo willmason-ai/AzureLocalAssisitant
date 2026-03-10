@@ -1,4 +1,5 @@
 import json
+import re
 
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 
@@ -6,6 +7,13 @@ from backend.auth.middleware import require_auth
 from backend.app import get_ai_service, get_ps_executor
 
 ai_bp = Blueprint('ai', __name__)
+
+# BUG-003 fix: Validate conversation IDs to prevent path traversal
+_SAFE_CONV_ID_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,100}$')
+
+
+def _validate_conversation_id(conv_id: str) -> bool:
+    return bool(_SAFE_CONV_ID_RE.match(conv_id))
 
 
 @ai_bp.route('/chat', methods=['POST'])
@@ -15,7 +23,13 @@ def chat():
     if not data or 'message' not in data:
         return jsonify({'error': 'Message is required'}), 400
 
+    if not isinstance(data['message'], str) or not data['message'].strip():
+        return jsonify({'error': 'Message must be a non-empty string'}), 400
+
     conversation_id = data.get('conversation_id', 'default')
+    if not _validate_conversation_id(conversation_id):
+        return jsonify({'error': 'Invalid conversation_id. Only alphanumeric, hyphens, and underscores allowed.'}), 400
+
     message = data['message']
 
     ai = get_ai_service(current_app)
@@ -48,6 +62,11 @@ def execute_tool():
     for field in required:
         if field not in data:
             return jsonify({'error': f'{field} is required'}), 400
+
+    if not isinstance(data['conversation_id'], str) or not _validate_conversation_id(data['conversation_id']):
+        return jsonify({'error': 'Invalid conversation_id'}), 400
+    if not isinstance(data['tool_input'], dict):
+        return jsonify({'error': 'tool_input must be an object'}), 400
 
     # Pre-execution safety check for PowerShell commands
     if data['tool_name'] == 'execute_powershell':
@@ -108,6 +127,8 @@ def list_conversations():
 @ai_bp.route('/conversations/<conversation_id>', methods=['GET'])
 @require_auth
 def get_conversation(conversation_id):
+    if not _validate_conversation_id(conversation_id):
+        return jsonify({'error': 'Invalid conversation_id'}), 400
     ai = get_ai_service(current_app)
     messages = ai.get_conversation(conversation_id)
     if messages is None:
@@ -118,6 +139,8 @@ def get_conversation(conversation_id):
 @ai_bp.route('/conversations/<conversation_id>', methods=['DELETE'])
 @require_auth
 def delete_conversation(conversation_id):
+    if not _validate_conversation_id(conversation_id):
+        return jsonify({'error': 'Invalid conversation_id'}), 400
     ai = get_ai_service(current_app)
     ai.delete_conversation(conversation_id)
     return jsonify({'deleted': True})

@@ -328,9 +328,16 @@ structured data."""
 
         return "\n\n".join(results)
 
+    def _safe_conv_path(self, conversation_id: str) -> Path:
+        """Resolve conversation file path, ensuring it stays within data_dir."""
+        filepath = (self.data_dir / f"{conversation_id}.json").resolve()
+        if not str(filepath).startswith(str(self.data_dir.resolve())):
+            raise ValueError(f"Invalid conversation_id: path traversal detected")
+        return filepath
+
     def _save_conversation(self, conversation_id: str):
         try:
-            filepath = self.data_dir / f"{conversation_id}.json"
+            filepath = self._safe_conv_path(conversation_id)
             with open(filepath, 'w') as f:
                 json.dump({
                     'id': conversation_id,
@@ -356,7 +363,7 @@ structured data."""
         return sorted(convos, key=lambda x: x.get('updated_at', ''), reverse=True)
 
     def get_conversation(self, conversation_id: str):
-        filepath = self.data_dir / f"{conversation_id}.json"
+        filepath = self._safe_conv_path(conversation_id)
         if not filepath.exists():
             return None
         try:
@@ -369,6 +376,6 @@ structured data."""
 
     def delete_conversation(self, conversation_id: str):
         self.conversations.pop(conversation_id, None)
-        filepath = self.data_dir / f"{conversation_id}.json"
+        filepath = self._safe_conv_path(conversation_id)
         if filepath.exists():
             filepath.unlink()

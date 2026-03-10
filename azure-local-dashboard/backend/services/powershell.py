@@ -256,7 +256,10 @@ class PowerShellExecutor:
                 timeout=10
             )
 
-            ps_command = f'powershell.exe -NoProfile -Command "{command}"'
+            # BUG-004 fix: Use -EncodedCommand to avoid shell injection via double quotes
+            import base64
+            encoded = base64.b64encode(command.encode('utf-16-le')).decode('ascii')
+            ps_command = f'powershell.exe -NoProfile -EncodedCommand {encoded}'
             stdin, stdout, stderr = client.exec_command(ps_command, timeout=timeout)
 
             stdout_text = stdout.read().decode('utf-8', errors='replace')
