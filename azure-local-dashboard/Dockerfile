@@ -28,10 +28,10 @@ RUN mkdir -p /app/data/conversations
 RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /app
 USER appuser
 
-EXPOSE 3000
+EXPOSE 5230
 
 CMD ["gunicorn", \
-     "--bind", "0.0.0.0:3000", \
+     "--bind", "0.0.0.0:5230", \
      "--workers", "4", \
      "--worker-class", "gevent", \
      "--timeout", "300", \
