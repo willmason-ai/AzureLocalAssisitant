@@ -1,0 +1,188 @@
+import json
+import logging
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+BLOCKED_COMMANDS = [
+    'Remove-ClusterNode',
+    'Stop-Cluster',
+    'Format-Volume',
+    'Remove-VirtualDisk',
+    'Clear-Disk',
+]
+
+DESTRUCTIVE_COMMANDS = [
+    'Start-SolutionUpdate',
+    'Repair-MocLogin',
+    'Update-MocIdentity',
+    'Restart-Computer',
+    'Stop-VM',
+    'Remove-VM',
+]
+
+
+@dataclass
+class ExecutionResult:
+    success: bool
+    stdout: str = ''
+    stderr: str = ''
+    exit_code: int = -1
+    node: str = ''
+    transport_used: str = ''
+    parsed: any = field(default=None)
+
+
+class PowerShellExecutor:
+    def __init__(self, config):
+        self.nodes = {
+            'dell-as01': config.get('AZURELOCAL_NODE1', 'dell-as01.presidiorocks.com'),
+            'dell-as02': config.get('AZURELOCAL_NODE2', 'dell-as02.presidiorocks.com'),
+        }
+        self.domain = config.get('AZURELOCAL_DOMAIN', 'presidiorocks.com')
+        self.username = config.get('AZURELOCAL_USERNAME', 'hciadmin')
+        self.password = config.get('AZURELOCAL_PASSWORD', '')
+        self.cluster_name = config.get('AZURELOCAL_CLUSTER', 'azurestack01')
+        self.transport = config.get('WINRM_TRANSPORT', 'ntlm')
+        self.use_ssl = config.get('WINRM_USE_SSL', True)
+        self.ssh_fallback = config.get('SSH_FALLBACK_ENABLED', True)
+
+    def execute(self, command: str, target_node: str = 'any',
+                timeout: int = 120, parse_json: bool = True) -> ExecutionResult:
+        is_safe, reason = self._validate_command(command)
+        if not is_safe:
+            return ExecutionResult(
+                success=False,
+                stderr=reason,
+                exit_code=-1
+            )
+
+        node_fqdn = self._select_node(target_node)
+        logger.info(f"Executing on {node_fqdn}: {command[:100]}...")
+
+        # Try WinRM first
+        result = self._execute_winrm(node_fqdn, command, timeout)
+
+        # Fallback to SSH if WinRM fails and SSH is enabled
+        if not result.success and self.ssh_fallback:
+            logger.info(f"WinRM failed for {node_fqdn}, trying SSH fallback...")
+            result = self._execute_ssh(node_fqdn, command, timeout)
+
+        # Parse JSON output if requested
+        if result.success and parse_json:
+            result.parsed = self._parse_output(result.stdout)
+
+        return result
+
+    def execute_on_all_nodes(self, command: str, timeout: int = 120) -> dict:
+        results = {}
+        for name in self.nodes:
+            results[name] = self.execute(command, target_node=name, timeout=timeout)
+        return results
+
+    def _select_node(self, target: str) -> str:
+        if target in self.nodes:
+            return self.nodes[target]
+        # 'any' -> try first node
+        return list(self.nodes.values())[0]
+
+    def _validate_command(self, command: str) -> tuple:
+        cmd_lower = command.lower()
+        for blocked in BLOCKED_COMMANDS:
+            if blocked.lower() in cmd_lower:
+                return False, f"Command '{blocked}' is blocked for safety."
+        return True, ""
+
+    def is_destructive(self, command: str) -> bool:
+        cmd_lower = command.lower()
+        return any(d.lower() in cmd_lower for d in DESTRUCTIVE_COMMANDS)
+
+    def _execute_winrm(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
+        try:
+            import winrm
+
+            protocol = 'https' if self.use_ssl else 'http'
+            port = 5986 if self.use_ssl else 5985
+            endpoint = f'{protocol}://{node_fqdn}:{port}/wsman'
+            full_username = f'{self.domain}\\{self.username}'
+
+            session = winrm.Session(
+                endpoint,
+                auth=(full_username, self.password),
+                transport=self.transport,
+                server_cert_validation='ignore',
+                operation_timeout_sec=timeout,
+                read_timeout_sec=timeout + 30
+            )
+
+            result = session.run_ps(command)
+            stdout = result.std_out.decode('utf-8', errors='replace')
+            stderr = result.std_err.decode('utf-8', errors='replace')
+
+            return ExecutionResult(
+                success=(result.status_code == 0),
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=result.status_code,
+                node=node_fqdn,
+                transport_used='winrm'
+            )
+        except Exception as e:
+            logger.error(f"WinRM execution failed on {node_fqdn}: {e}")
+            return ExecutionResult(
+                success=False,
+                stderr=str(e),
+                node=node_fqdn,
+                transport_used='winrm'
+            )
+
+    def _execute_ssh(self, node_fqdn: str, command: str, timeout: int) -> ExecutionResult:
+        try:
+            import paramiko
+
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=node_fqdn,
+                port=22,
+                username=f'{self.domain}\\{self.username}',
+                password=self.password,
+                timeout=30
+            )
+
+            ps_command = f'powershell.exe -NoProfile -Command "{command}"'
+            stdin, stdout, stderr = client.exec_command(ps_command, timeout=timeout)
+
+            stdout_text = stdout.read().decode('utf-8', errors='replace')
+            stderr_text = stderr.read().decode('utf-8', errors='replace')
+            exit_code = stdout.channel.recv_exit_status()
+
+            client.close()
+
+            return ExecutionResult(
+                success=(exit_code == 0),
+                stdout=stdout_text,
+                stderr=stderr_text,
+                exit_code=exit_code,
+                node=node_fqdn,
+                transport_used='ssh'
+            )
+        except Exception as e:
+            logger.error(f"SSH execution failed on {node_fqdn}: {e}")
+            return ExecutionResult(
+                success=False,
+                stderr=str(e),
+                node=node_fqdn,
+                transport_used='ssh'
+            )
+
+    def _parse_output(self, raw_output: str):
+        if not raw_output or not raw_output.strip():
+            return None
+        cleaned = raw_output.strip()
+        if cleaned.startswith('\ufeff'):
+            cleaned = cleaned[1:]
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            return cleaned

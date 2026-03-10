@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  azure-local-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - dashboard-data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  dashboard-data:
+    driver: local
