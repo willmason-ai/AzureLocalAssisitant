@@ -16,6 +16,23 @@ VM_STATE = {
 MOC_HEALTH = {0: 'Healthy', 1: 'Warning', 2: 'Critical', 3: 'Unknown'}
 MOC_STATE = {0: 'Active', 1: 'Inactive', 2: 'Maintenance', 3: 'Unknown'}
 
+# Solution Update enums (Get-SolutionUpdate State)
+SOLUTION_UPDATE_STATE = {
+    0: 'Unknown', 1: 'HasPrerequisite', 2: 'Downloading',
+    3: 'Ready', 4: 'NotApplicableBecauseAnotherUpdateIsInProgress',
+    5: 'Preparing', 6: 'Installing', 7: 'Installed',
+    8: 'PreparationFailed', 9: 'InstallationFailed',
+    10: 'Invalid', 11: 'Recalled', 12: 'HealthChecking',
+    13: 'HealthCheckFailed', 14: 'ReadyToInstall',
+    15: 'ScanInProgress', 16: 'ScanFailed',
+}
+
+# Solution Update Run enums
+SOLUTION_UPDATE_RUN_STATE = {
+    0: 'Unknown', 1: 'InProgress', 2: 'Succeeded',
+    3: 'Failed', 4: 'Cancelled',
+}
+
 # HCI Registration enums
 HCI_CONNECTION_STATUS = {0: 'NotYet', 1: 'Connected', 2: 'Disconnected', 3: 'Error'}
 HCI_REGISTRATION_STATUS = {0: 'NotYet', 1: 'Registered', 2: 'Unregistered', 3: 'Error'}

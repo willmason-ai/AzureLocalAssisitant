@@ -21,11 +21,11 @@ export default function UpdatesPage() {
 
   const updateList = Array.isArray(updates?.updates) ? updates.updates : updates?.updates ? [updates.updates] : [];
   const historyList = Array.isArray(history?.history) ? history.history : history?.history ? [history.history] : [];
-  const readyUpdates = updateList.filter((u: any) => u.State === 'Ready');
+  const readyUpdates = updateList.filter((u: any) => String(u.State || '').toLowerCase() === 'ready');
 
   // Find current installed version (highest version with State=Installed)
   const installed = updateList
-    .filter((u: any) => (u.State || '').toLowerCase() === 'installed')
+    .filter((u: any) => String(u.State || '').toLowerCase() === 'installed')
     .sort((a: any, b: any) => (b.Version || '').localeCompare(a.Version || ''));
   const currentVersion = installed.length > 0 ? installed[0] : null;
 

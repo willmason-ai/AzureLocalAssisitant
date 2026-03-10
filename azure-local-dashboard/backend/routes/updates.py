@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, current_app
 
 from backend.auth.middleware import require_auth
 from backend.app import get_ps_executor
+from backend.utils.enums import resolve_enums, SOLUTION_UPDATE_STATE, SOLUTION_UPDATE_RUN_STATE
 
 updates_bp = Blueprint('updates', __name__)
 
@@ -26,7 +27,9 @@ def list_updates():
     )
     if not result.success:
         return jsonify({'error': result.stderr}), 500
-    return jsonify({'updates': _ensure_list(result.parsed)})
+    updates = _ensure_list(result.parsed)
+    resolve_enums(updates, {'State': SOLUTION_UPDATE_STATE})
+    return jsonify({'updates': updates})
 
 
 @updates_bp.route('/current', methods=['GET'])
@@ -41,6 +44,8 @@ def current_update():
     )
     if not result.success:
         return jsonify({'error': result.stderr}), 500
+    if result.parsed:
+        resolve_enums(result.parsed, {'State': SOLUTION_UPDATE_RUN_STATE})
     return jsonify({'current_run': result.parsed})
 
 
@@ -56,7 +61,9 @@ def update_history():
     )
     if not result.success:
         return jsonify({'error': result.stderr}), 500
-    return jsonify({'history': _ensure_list(result.parsed)})
+    hist = _ensure_list(result.parsed)
+    resolve_enums(hist, {'State': SOLUTION_UPDATE_RUN_STATE})
+    return jsonify({'history': hist})
 
 
 @updates_bp.route('/environment', methods=['GET'])

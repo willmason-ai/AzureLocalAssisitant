@@ -12,14 +12,14 @@ interface UpdateTimelineProps {
 }
 
 function stateIcon(state: string) {
-  const s = (state || '').toLowerCase();
+  const s = String(state ?? '').toLowerCase();
   if (s === 'installed') return <CheckCircle className="w-4 h-4 text-green-400" />;
   if (s === 'ready' || s === 'downloading') return <Download className="w-4 h-4 text-amber-400" />;
   return <Clock className="w-4 h-4 text-slate-500" />;
 }
 
 function stateDotColor(state: string, isCurrent: boolean) {
-  const s = (state || '').toLowerCase();
+  const s = String(state ?? '').toLowerCase();
   if (isCurrent) return 'bg-blue-500 ring-4 ring-blue-500/20';
   if (s === 'installed') return 'bg-green-500';
   if (s === 'ready' || s === 'downloading') return 'bg-amber-500 animate-pulse';
@@ -31,9 +31,9 @@ export default function UpdateTimeline({ updates }: UpdateTimelineProps) {
 
   // Sort: installed by version ascending, then pending
   const installed = updates
-    .filter(u => (u.State || '').toLowerCase() === 'installed')
+    .filter(u => String(u.State ?? '').toLowerCase() === 'installed')
     .sort((a, b) => (a.Version || '').localeCompare(b.Version || ''));
-  const pending = updates.filter(u => (u.State || '').toLowerCase() !== 'installed');
+  const pending = updates.filter(u => String(u.State ?? '').toLowerCase() !== 'installed');
   const sorted = [...installed, ...pending];
 
   // Current = last installed
@@ -43,7 +43,7 @@ export default function UpdateTimeline({ updates }: UpdateTimelineProps) {
     <div className="relative">
       {sorted.map((update, idx) => {
         const isCurrent = update.Version === currentVersion;
-        const isPending = (update.State || '').toLowerCase() !== 'installed';
+        const isPending = String(update.State ?? '').toLowerCase() !== 'installed';
         const isLast = idx === sorted.length - 1;
 
         return (
