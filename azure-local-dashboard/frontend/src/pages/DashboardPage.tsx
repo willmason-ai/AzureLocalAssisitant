@@ -1,4 +1,5 @@
 import { useClusterStatus, useClusterNodes, useClusterVMs, useClusterStorage } from '../hooks/useClusterStatus';
+import { useUpdates } from '../hooks/useUpdates';
 import NodeCard from '../components/dashboard/NodeCard';
 import ClusterSummary from '../components/dashboard/ClusterSummary';
 import QuickStats from '../components/dashboard/QuickStats';
@@ -11,6 +12,7 @@ export default function DashboardPage() {
   const { data: nodesInfo } = useClusterNodes();
   const { data: vms } = useClusterVMs();
   const { data: storage } = useClusterStorage();
+  const { data: updates } = useUpdates();
 
   if (statusLoading) {
     return <LoadingSpinner size="lg" className="mt-20" />;
@@ -43,6 +45,14 @@ export default function DashboardPage() {
 
   const nodes = Array.isArray(status?.nodes) ? status.nodes : status?.nodes ? [status.nodes] : [];
   const faults = Array.isArray(status?.health_faults) ? status.health_faults : [];
+
+  // Extract current platform version from updates data
+  const updateList = Array.isArray(updates?.updates) ? updates.updates : [];
+  const installedUpdates = updateList
+    .filter((u: any) => String(u.State || '').toLowerCase() === 'installed')
+    .sort((a: any, b: any) => (b.Version || '').localeCompare(a.Version || ''));
+  const platformVersion = installedUpdates.length > 0 ? installedUpdates[0].Version : null;
+  const platformName = installedUpdates.length > 0 ? installedUpdates[0].DisplayName : null;
   const vmList = Array.isArray(vms?.vms) ? vms.vms : [];
 
   // Compute cores and RAM from live node data instead of hardcoded values
@@ -84,7 +94,7 @@ export default function DashboardPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ClusterSummary nodes={nodes} healthFaults={faults} />
+        <ClusterSummary nodes={nodes} healthFaults={faults} platformVersion={platformVersion} platformName={platformName} />
 
         {nodes.map((node: any) => (
           <NodeCard

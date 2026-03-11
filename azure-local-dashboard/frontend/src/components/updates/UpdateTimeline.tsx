@@ -13,16 +13,18 @@ interface UpdateTimelineProps {
 
 function stateIcon(state: string) {
   const s = String(state ?? '').toLowerCase();
-  if (s === 'installed') return <CheckCircle className="w-4 h-4 text-green-400" />;
-  if (s === 'ready' || s === 'downloading') return <Download className="w-4 h-4 text-amber-400" />;
+  if (s === 'installed' || s === 'succeeded') return <CheckCircle className="w-4 h-4 text-green-400" />;
+  if (s === 'ready' || s === 'readytoinstall' || s === 'downloading') return <Download className="w-4 h-4 text-amber-400" />;
+  if (s === 'hasprerequisite' || s === 'preparing' || s === 'installing' || s === 'healthchecking' || s === 'scaninprogress') return <Clock className="w-4 h-4 text-blue-400 animate-pulse" />;
   return <Clock className="w-4 h-4 text-slate-500" />;
 }
 
 function stateDotColor(state: string, isCurrent: boolean) {
   const s = String(state ?? '').toLowerCase();
   if (isCurrent) return 'bg-blue-500 ring-4 ring-blue-500/20';
-  if (s === 'installed') return 'bg-green-500';
-  if (s === 'ready' || s === 'downloading') return 'bg-amber-500 animate-pulse';
+  if (s === 'installed' || s === 'succeeded') return 'bg-green-500';
+  if (s === 'ready' || s === 'readytoinstall' || s === 'downloading') return 'bg-amber-500 animate-pulse';
+  if (s === 'hasprerequisite' || s === 'preparing' || s === 'installing' || s === 'healthchecking') return 'bg-blue-500 animate-pulse';
   return 'bg-slate-600';
 }
 

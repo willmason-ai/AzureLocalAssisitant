@@ -1,12 +1,14 @@
-import { Activity } from 'lucide-react';
+import { Activity, Server } from 'lucide-react';
 import type { ClusterNode, HealthFault } from '../../types';
 
 interface ClusterSummaryProps {
   nodes: ClusterNode[];
   healthFaults: HealthFault[];
+  platformVersion?: string | null;
+  platformName?: string | null;
 }
 
-export default function ClusterSummary({ nodes, healthFaults }: ClusterSummaryProps) {
+export default function ClusterSummary({ nodes, healthFaults, platformVersion, platformName }: ClusterSummaryProps) {
   const onlineCount = nodes.filter(n => String(n.State ?? '').toLowerCase() === 'up').length;
   const totalCount = nodes.length;
   const isHealthy = onlineCount === totalCount && healthFaults.length === 0;
@@ -42,6 +44,14 @@ export default function ClusterSummary({ nodes, healthFaults }: ClusterSummaryPr
           </p>
         </div>
       </div>
+
+      {platformVersion && (
+        <div className="mt-3 pt-3 border-t border-slate-700 flex items-center gap-2">
+          <Server className="w-3.5 h-3.5 text-slate-500" />
+          <span className="text-xs text-slate-400">Platform:</span>
+          <span className="text-xs font-mono text-blue-400">v{platformVersion}</span>
+        </div>
+      )}
     </div>
   );
 }
