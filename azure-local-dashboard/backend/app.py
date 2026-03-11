@@ -134,6 +134,15 @@ def get_ai_service(app):
     if app._ai_service is None:
         from backend.services.claude_ai import ClaudeAIService
         app._ai_service = ClaudeAIService(app.config, get_ps_executor(app))
+        # If user previously stored an API key, use it instead of the env var
+        try:
+            store = get_credential_store(app)
+            stored_key = store.get('ai_config', 'anthropic_api_key')
+            if stored_key:
+                app._ai_service.update_api_key(stored_key)
+                logger.info("Using user-configured Anthropic API key from credential store")
+        except Exception as e:
+            logger.warning(f"Could not load stored API key: {e}")
     return app._ai_service
 
 

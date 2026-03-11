@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Settings, CheckCircle, XCircle, Loader2, Wifi,
   HardDrive, Clock, Shield, AlertTriangle, ArrowUpCircle,
-  Key, Plus, Trash2, TestTube
+  Key, Plus, Trash2, TestTube, Bot, Save, Eye, EyeOff
 } from 'lucide-react';
 import api from '../services/api';
 import { safeString } from '../utils/safeRender';
@@ -58,6 +58,35 @@ export default function SettingsPage() {
   const [newCredName, setNewCredName] = useState('');
   const [newCredFields, setNewCredFields] = useState({ username: '', password: '', domain: '', target_node: '' });
   const [credTestResults, setCredTestResults] = useState<Record<string, any>>({});
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [aiConfigStatus, setAiConfigStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const { data: aiConfig, refetch: refetchAiConfig } = useQuery({
+    queryKey: ['settings', 'ai-config'],
+    queryFn: async () => {
+      const { data } = await api.get('/settings/ai-config');
+      return data;
+    },
+  });
+
+  const saveAiKey = useMutation({
+    mutationFn: async (apiKey: string) => {
+      const { data } = await api.put('/settings/ai-config', { api_key: apiKey });
+      return data;
+    },
+    onSuccess: () => {
+      setAiConfigStatus({ type: 'success', message: 'API key saved successfully' });
+      setApiKeyInput('');
+      refetchAiConfig();
+      setTimeout(() => setAiConfigStatus(null), 3000);
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.error || err.message || 'Failed to save API key';
+      setAiConfigStatus({ type: 'error', message: msg });
+      setTimeout(() => setAiConfigStatus(null), 5000);
+    },
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -188,6 +217,85 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* AI Configuration */}
+      <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Bot className="w-5 h-5 text-blue-400" />
+          <h3 className="text-sm font-semibold text-slate-100">AI Configuration</h3>
+        </div>
+
+        {/* Current status */}
+        <div className="mb-4 p-3 bg-slate-900 rounded-lg">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400">Anthropic API Key</span>
+            {aiConfig?.has_key ? (
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-slate-300">{aiConfig.masked_key}</span>
+                <span className="px-1.5 py-0.5 bg-green-900/30 text-green-400 rounded text-[10px] uppercase">
+                  {aiConfig.source === 'environment' ? 'env var' : 'configured'}
+                </span>
+              </div>
+            ) : (
+              <span className="px-1.5 py-0.5 bg-red-900/30 text-red-400 rounded text-[10px] uppercase">
+                not set
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Input field */}
+        <div className="space-y-3">
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              placeholder="sk-ant-..."
+              value={apiKeyInput}
+              onChange={e => setApiKeyInput(e.target.value)}
+              className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-600 rounded text-slate-200 placeholder:text-slate-500 pr-10 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-slate-500">
+              {aiConfig?.source === 'environment'
+                ? 'A key is set via environment variable. Saving here will override it.'
+                : 'Enter your Anthropic API key to enable the AI assistant.'}
+            </p>
+            <button
+              onClick={() => {
+                if (apiKeyInput.trim()) saveAiKey.mutate(apiKeyInput.trim());
+              }}
+              disabled={!apiKeyInput.trim() || saveAiKey.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded transition-colors"
+            >
+              {saveAiKey.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              Save
+            </button>
+          </div>
+
+          {/* Status feedback */}
+          {aiConfigStatus && (
+            <div className={`flex items-center gap-2 text-xs p-2 rounded ${
+              aiConfigStatus.type === 'success'
+                ? 'bg-green-900/20 text-green-400'
+                : 'bg-red-900/20 text-red-400'
+            }`}>
+              {aiConfigStatus.type === 'success'
+                ? <CheckCircle className="w-3.5 h-3.5" />
+                : <XCircle className="w-3.5 h-3.5" />}
+              {aiConfigStatus.message}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Test Results */}

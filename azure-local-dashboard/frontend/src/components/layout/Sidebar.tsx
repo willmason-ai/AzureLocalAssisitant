@@ -15,11 +15,11 @@ import api from '../../services/api';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/ai', icon: Bot, label: 'AI Assistant' },
   { to: '/updates', icon: Download, label: 'Updates' },
   { to: '/credentials', icon: ShieldCheck, label: 'Credentials' },
   { to: '/kubernetes', icon: Container, label: 'Kubernetes' },
   { to: '/extensions', icon: Puzzle, label: 'Extensions' },
-  { to: '/ai', icon: Bot, label: 'AI Assistant' },
 ];
 
 export default function Sidebar() {

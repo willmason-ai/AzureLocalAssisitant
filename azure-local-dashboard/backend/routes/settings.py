@@ -1,7 +1,9 @@
+import re
+
 from flask import Blueprint, jsonify, request, current_app
 
 from backend.auth.middleware import require_auth
-from backend.app import get_ps_executor
+from backend.app import get_ps_executor, get_credential_store, get_ai_service
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -105,3 +107,68 @@ def test_connection():
             'transport': result.transport_used if hasattr(result, 'transport_used') else 'unknown'
         }
     return jsonify(results)
+
+
+def _mask_api_key(key: str) -> str:
+    """Mask an API key for display, showing prefix and last 4 chars."""
+    if not key or len(key) < 12:
+        return '****'
+    return key[:7] + '...' + key[-4:]
+
+
+@settings_bp.route('/ai-config', methods=['GET'])
+@require_auth
+def get_ai_config():
+    """Check if an Anthropic API key is configured and return masked version."""
+    store = get_credential_store(current_app)
+    stored_key = store.get('ai_config', 'anthropic_api_key')
+    env_key = current_app.config.get('ANTHROPIC_API_KEY', '')
+
+    if stored_key:
+        return jsonify({
+            'has_key': True,
+            'masked_key': _mask_api_key(stored_key),
+            'source': 'user-configured'
+        })
+    elif env_key:
+        return jsonify({
+            'has_key': True,
+            'masked_key': _mask_api_key(env_key),
+            'source': 'environment'
+        })
+    else:
+        return jsonify({
+            'has_key': False,
+            'masked_key': None,
+            'source': None
+        })
+
+
+@settings_bp.route('/ai-config', methods=['PUT'])
+@require_auth
+def update_ai_config():
+    """Update the Anthropic API key."""
+    data = request.get_json()
+    if not data or 'api_key' not in data:
+        return jsonify({'error': 'api_key is required'}), 400
+
+    api_key = data['api_key'].strip()
+    if not api_key:
+        return jsonify({'error': 'api_key cannot be empty'}), 400
+
+    if not re.match(r'^sk-ant-', api_key):
+        return jsonify({'error': 'Invalid API key format. Anthropic keys start with sk-ant-'}), 400
+
+    # Store encrypted in credential store
+    store = get_credential_store(current_app)
+    store.update('ai_config', {'anthropic_api_key': api_key})
+
+    # Update the running AI service if it's already initialized
+    if current_app._ai_service is not None:
+        current_app._ai_service.update_api_key(api_key)
+
+    return jsonify({
+        'success': True,
+        'masked_key': _mask_api_key(api_key),
+        'source': 'user-configured'
+    })

@@ -65,6 +65,11 @@ class ClaudeAIService:
         self._kva_token_path = config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
         self.system_prompt = self._build_system_prompt(config)
 
+    def update_api_key(self, new_key: str):
+        """Update the Anthropic API key at runtime and reinitialize the client."""
+        self.client = Anthropic(api_key=new_key) if new_key else None
+        logger.info("Claude API key updated at runtime")
+
     def _build_system_prompt(self, config) -> str:
         cluster = config.get('AZURELOCAL_CLUSTER', 'azurestack01')
         domain = config.get('AZURELOCAL_DOMAIN', 'presidiorocks.com')
