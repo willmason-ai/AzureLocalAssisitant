@@ -29,12 +29,15 @@ def _get_scheduler():
 def list_updates():
     scheduler = _get_scheduler()
 
-    if scheduler is not None and scheduler.get_cache_age('updates') < UPDATES_CACHE_TTL:
+    # Always serve from cache if available (stale-while-revalidate)
+    if scheduler is not None and scheduler.has_cache('updates'):
         return jsonify({
             'updates': _ensure_list(scheduler.get_cache('updates')),
             'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('updates'), 1),
         })
 
+    # No cache at all — must fetch live (only happens on cold start before scheduler warms)
     ps = get_ps_executor(current_app)
     result = ps.execute(
         'Get-SolutionUpdate | Select-Object DisplayName, State, Version, '
@@ -53,10 +56,11 @@ def list_updates():
 def current_update():
     scheduler = _get_scheduler()
 
-    if scheduler is not None and scheduler.get_cache_age('update_current') < UPDATES_CACHE_TTL:
+    if scheduler is not None and scheduler.has_cache('update_current'):
         return jsonify({
             'current_run': scheduler.get_cache('update_current'),
             'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('update_current'), 1),
         })
 
     ps = get_ps_executor(current_app)
@@ -78,10 +82,11 @@ def current_update():
 def update_history():
     scheduler = _get_scheduler()
 
-    if scheduler is not None and scheduler.get_cache_age('update_history') < UPDATES_CACHE_TTL:
+    if scheduler is not None and scheduler.has_cache('update_history'):
         return jsonify({
             'history': _ensure_list(scheduler.get_cache('update_history')),
             'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('update_history'), 1),
         })
 
     ps = get_ps_executor(current_app)

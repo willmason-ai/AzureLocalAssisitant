@@ -32,8 +32,9 @@ EXPOSE 5230
 
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:5230", \
-     "--workers", "4", \
+     "--workers", "1", \
      "--worker-class", "gevent", \
+     "--worker-connections", "200", \
      "--timeout", "300", \
      "--keep-alive", "65", \
      "backend.wsgi:app"]

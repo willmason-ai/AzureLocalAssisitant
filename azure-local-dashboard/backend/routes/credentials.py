@@ -23,19 +23,15 @@ def _get_scheduler():
 def credential_status():
     scheduler = _get_scheduler()
 
-    # Try cache first — credentials change infrequently, 1-hour TTL
-    if scheduler is not None:
-        kva_age = scheduler.get_cache_age('kva_token')
-        hci_age = scheduler.get_cache_age('hci_registration')
-        moc_age = scheduler.get_cache_age('moc_nodes')
-        if all(age < CREDENTIALS_CACHE_TTL for age in (kva_age, hci_age, moc_age)):
-            return jsonify({
-                'kva_token': scheduler.get_cache('kva_token'),
-                'hci_registration': scheduler.get_cache('hci_registration'),
-                'moc_nodes': scheduler.get_cache('moc_nodes'),
-                'from_cache': True,
-                'cache_age_seconds': round(max(kva_age, hci_age, moc_age), 1),
-            })
+    # Always serve from cache if available (stale-while-revalidate)
+    if scheduler is not None and scheduler.has_cache('kva_token'):
+        return jsonify({
+            'kva_token': scheduler.get_cache('kva_token'),
+            'hci_registration': scheduler.get_cache('hci_registration'),
+            'moc_nodes': scheduler.get_cache('moc_nodes'),
+            'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('kva_token'), 1),
+        })
 
     # Cache miss — fall back to live PS calls
     ps = get_ps_executor(current_app)

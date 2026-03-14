@@ -155,6 +155,11 @@ class HealthScheduler:
                 return float('inf')
             return time.time() - ts
 
+    def has_cache(self, key: str) -> bool:
+        """Return True if there is any cached value for *key*, regardless of age."""
+        with self._lock:
+            return key in self._cache
+
     def force_refresh(self):
         """Force an immediate refresh of all cached data."""
         logger.info("Forcing full cache refresh")

@@ -8,7 +8,7 @@ from backend.utils.enums import (
 
 cluster_bp = Blueprint('cluster', __name__)
 
-# Cache TTL thresholds (seconds)
+# Cache TTL thresholds (seconds) — only used for fallback live queries
 HEALTH_CACHE_TTL = 60
 
 
@@ -31,21 +31,17 @@ def _get_scheduler():
 def cluster_status():
     scheduler = _get_scheduler()
 
-    # Try cache first
-    if scheduler is not None:
-        nodes_age = scheduler.get_cache_age('cluster_health')
-        faults_age = scheduler.get_cache_age('health_faults')
-        if nodes_age < HEALTH_CACHE_TTL:
-            cached_nodes = scheduler.get_cache('cluster_health')
-            cached_faults = scheduler.get_cache('health_faults') if faults_age < HEALTH_CACHE_TTL else None
-            return jsonify({
-                'nodes': _ensure_list(cached_nodes),
-                'health_faults': _ensure_list(cached_faults),
-                'from_cache': True,
-                'cache_age_seconds': round(nodes_age, 1),
-            })
+    # Always serve from cache if available (stale-while-revalidate)
+    if scheduler is not None and scheduler.has_cache('cluster_health'):
+        cached_faults = scheduler.get_cache('health_faults') if scheduler.has_cache('health_faults') else None
+        return jsonify({
+            'nodes': _ensure_list(scheduler.get_cache('cluster_health')),
+            'health_faults': _ensure_list(cached_faults),
+            'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('cluster_health'), 1),
+        })
 
-    # Cache miss or stale — execute live via parallel PS calls
+    # Cache miss — execute live via parallel PS calls
     ps = get_ps_executor(current_app)
 
     results = ps.execute_parallel([
@@ -84,8 +80,8 @@ def cluster_nodes():
     """Get node details using fast CIM queries instead of slow Get-ComputerInfo."""
     scheduler = _get_scheduler()
 
-    # Try cache first
-    if scheduler is not None and scheduler.get_cache_age('cluster_nodes_detail') < HEALTH_CACHE_TTL:
+    # Always serve from cache if available
+    if scheduler is not None and scheduler.has_cache('cluster_nodes_detail'):
         return jsonify(scheduler.get_cache('cluster_nodes_detail'))
 
     ps = get_ps_executor(current_app)
@@ -127,16 +123,14 @@ def cluster_nodes():
 def cluster_storage():
     scheduler = _get_scheduler()
 
-    # Try cache first
-    if scheduler is not None:
-        pools_age = scheduler.get_cache_age('storage_pools')
-        disks_age = scheduler.get_cache_age('virtual_disks')
-        if pools_age < HEALTH_CACHE_TTL and disks_age < HEALTH_CACHE_TTL:
-            return jsonify({
-                'storage_pools': _ensure_list(scheduler.get_cache('storage_pools')),
-                'virtual_disks': _ensure_list(scheduler.get_cache('virtual_disks')),
-                'from_cache': True,
-            })
+    # Always serve from cache if available
+    if scheduler is not None and scheduler.has_cache('storage_pools') and scheduler.has_cache('virtual_disks'):
+        return jsonify({
+            'storage_pools': _ensure_list(scheduler.get_cache('storage_pools')),
+            'virtual_disks': _ensure_list(scheduler.get_cache('virtual_disks')),
+            'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('storage_pools'), 1),
+        })
 
     ps = get_ps_executor(current_app)
 
@@ -174,10 +168,11 @@ def cluster_storage():
 def cluster_vms():
     scheduler = _get_scheduler()
 
-    if scheduler is not None and scheduler.get_cache_age('cluster_vms') < HEALTH_CACHE_TTL:
+    if scheduler is not None and scheduler.has_cache('cluster_vms'):
         return jsonify({
             'vms': _ensure_list(scheduler.get_cache('cluster_vms')),
             'from_cache': True,
+            'cache_age_seconds': round(scheduler.get_cache_age('cluster_vms'), 1),
         })
 
     ps = get_ps_executor(current_app)
