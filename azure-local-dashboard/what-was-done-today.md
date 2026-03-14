@@ -30,7 +30,31 @@ The **Azure Local AI Operations Dashboard** is a custom-built, Dockerized web ap
 
 ## Work Completed Today
 
-### Version: 2.3.1 -> 2.4.0
+### Version: 2.3.1 -> 2.4.0 -> 2.5.0
+
+### 00. Updates Timeline Fix + Kubernetes Workloads + Init Container Fix (v2.5.0)
+
+**Updates Timeline (FIX-002)**:
+- Superseded/skipped updates were incorrectly shown as "Installing" with pulsing blue indicators
+- States like `HasPrerequisite`, `NotApplicableBecauseAnotherUpdateIsInProgress`, `Recalled`, `Invalid`, and all `*Failed` states now render as grey with appropriate labels ("Skipped", "Superseded", "Recalled", "Failed")
+- Only truly actionable updates (Ready, Downloading, Preparing, Installing) now pulse
+
+**Kubernetes Workloads Page (FIX-004)**:
+- Completely rebuilt the Kubernetes page to show live workload data via the in-cluster Kubernetes API (no `az login` required)
+- Summary cards: namespace count, deployment count, pod count, running pods, unique images
+- Deployments section: shows each deployment with namespace, ready/replica counts, and container images
+- Pods section: grouped by namespace, showing container images, state, restart counts, and node assignment
+- Container images section: full list of all unique images running on the cluster
+- Added RBAC `ClusterRole` + `ClusterRoleBinding` (`k8s/rbac.yaml`) granting read-only access to pods, deployments, namespaces, services, replicasets, daemonsets, and statefulsets
+- Auto-refreshes every 30 seconds
+
+**Init Container Fix (FIX-001)**:
+- The `fix-data-permissions` init container was failing with `CreateContainerConfigError` because its `runAsUser: 0` conflicted with the pod-level `runAsNonRoot: true` security context
+- Added `runAsNonRoot: false` to the init container's securityContext to override the pod-level policy
+- Re-applied `deployment.yaml` (previous deploys only used `kubectl rollout restart` which doesn't pick up manifest changes)
+
+**Tracking**:
+- Created `FIXES-TODO.md` to track open issues (caching performance, API key persistence across restarts)
 
 ### 0. Sidebar Reorder + AI API Key Settings (v2.4.0)
 - **Sidebar reorder**: Moved "AI Assistant" from position 6 to position 2 (below Dashboard, above Updates) for faster access to the AI chat
@@ -85,8 +109,8 @@ Addressed the primary complaint that the dashboard was slow due to PowerShell-dr
 ---
 
 ## Current State
-- **Version**: 2.4.0
+- **Version**: 2.5.0
 - **Deployed to**: AKS Arc (Azurelocal-AKS cluster, namespace: azure-local-ops)
-- **Container Registry**: cravsnetmon.azurecr.io/azure-local-dashboard:2.4.0
+- **Container Registry**: cravsnetmon.azurecr.io/azure-local-dashboard:2.5.0
 - **Status**: Live and operational
-- **Remaining roadmap items**: History/data retention (SQLite), Extensions page Azure API rewrite, time display in header
+- **Remaining roadmap items**: History/data retention (SQLite), Extensions page Azure API rewrite, caching performance improvements, time display in header
