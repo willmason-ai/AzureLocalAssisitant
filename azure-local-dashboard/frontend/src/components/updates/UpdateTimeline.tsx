@@ -1,10 +1,13 @@
-import { CheckCircle, Clock, Download, ArrowRight } from 'lucide-react';
+import { CheckCircle, Clock, Download, ArrowRight, Calendar } from 'lucide-react';
 import { safeString } from '../../utils/safeRender';
 
 interface UpdateEntry {
   DisplayName: string;
   Version: string;
   State: string;
+  InstalledDate?: string | null;
+  DateCreated?: string | null;
+  Description?: string | null;
 }
 
 interface UpdateTimelineProps {
@@ -51,6 +54,21 @@ function stateLabel(state: string) {
   return state;
 }
 
+function formatDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function UpdateTimeline({ updates }: UpdateTimelineProps) {
   if (!updates || updates.length === 0) return null;
 
@@ -77,6 +95,9 @@ export default function UpdateTimeline({ updates }: UpdateTimelineProps) {
         const isInstalled = stateStr === 'installed' || stateStr === 'succeeded';
         const isPending = !isInstalled && !isSkipped;
         const isLast = idx === sorted.length - 1;
+        const installedDate = formatDate(update.InstalledDate);
+        const createdDate = formatDate(update.DateCreated);
+        const dateToShow = installedDate || createdDate;
 
         return (
           <div key={idx} className="relative flex gap-4">
@@ -127,9 +148,22 @@ export default function UpdateTimeline({ updates }: UpdateTimelineProps) {
                     )}
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 font-mono mt-1">
-                  v{safeString(update.Version)}
-                </p>
+                <div className="flex items-center gap-3 mt-1">
+                  <p className="text-xs text-slate-500 font-mono">
+                    v{safeString(update.Version)}
+                  </p>
+                  {dateToShow && (
+                    <span className="flex items-center gap-1 text-xs text-slate-500">
+                      <Calendar className="w-3 h-3" />
+                      {dateToShow}
+                    </span>
+                  )}
+                </div>
+                {update.Description && (
+                  <p className="text-xs text-slate-500 mt-1.5 line-clamp-2">
+                    {safeString(update.Description)}
+                  </p>
+                )}
               </div>
             </div>
           </div>

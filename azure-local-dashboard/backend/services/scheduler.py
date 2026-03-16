@@ -224,16 +224,22 @@ class HealthScheduler:
             logger.error(f"Storage check failed: {e}")
 
     def _check_cluster_vms(self):
+        """Query both nodes for VMs — Get-VM only returns local VMs per host."""
         try:
-            result = self.ps_executor.execute(
+            all_vms = []
+            vm_cmd = (
                 'Get-VM | Select-Object Name, State, CPUUsage, MemoryAssigned, Uptime, '
-                'Status, ComputerName | ConvertTo-Json -Depth 2',
-                target_node='any',
-                timeout=30
+                'Status, ComputerName | ConvertTo-Json -Depth 2'
             )
-            if result.success:
-                resolve_enums(result.parsed, {'State': VM_STATE})
-                self._set_cache('cluster_vms', result.parsed)
+            for node in self.ps_executor.nodes:
+                result = self.ps_executor.execute(vm_cmd, target_node=node, timeout=30)
+                if result.success and result.parsed:
+                    items = result.parsed if isinstance(result.parsed, list) else [result.parsed]
+                    resolve_enums(items, {'State': VM_STATE})
+                    all_vms.extend(items)
+                elif not result.success:
+                    logger.warning(f"VM check failed on {node}: {result.stderr}")
+            self._set_cache('cluster_vms', all_vms)
         except Exception as e:
             logger.error(f"VM check failed: {e}")
 
@@ -263,13 +269,24 @@ class HealthScheduler:
         except Exception as e:
             logger.error(f"Node detail check failed: {e}")
 
+    def _execute_with_node_failover(self, command: str, timeout: int = 120):
+        """Try executing on each node until one succeeds. Update commands are
+        heavy and can fail on a busy node due to WinRM session limits."""
+        for node in self.ps_executor.nodes:
+            result = self.ps_executor.execute(
+                command, target_node=node, timeout=timeout
+            )
+            if result.success:
+                return result
+            logger.warning(f"Command failed on {node}, trying next node...")
+        return result  # return last failure
+
     def _check_updates(self):
         try:
-            result = self.ps_executor.execute(
+            result = self._execute_with_node_failover(
                 'Get-SolutionUpdate | Select-Object DisplayName, State, Version, '
                 'DateCreated, InstalledDate, Description | ConvertTo-Json -Depth 3',
-                target_node='any',
-                timeout=60
+                timeout=120
             )
             if result.success:
                 data = result.parsed if isinstance(result.parsed, list) else (
@@ -277,33 +294,35 @@ class HealthScheduler:
                 )
                 resolve_enums(data, {'State': SOLUTION_UPDATE_STATE})
                 self._set_cache('updates', data)
+            else:
+                logger.warning(f"Update check failed on all nodes: {result.stderr}")
         except Exception as e:
             logger.error(f"Update check failed: {e}")
 
     def _check_update_current(self):
         try:
-            result = self.ps_executor.execute(
+            result = self._execute_with_node_failover(
                 'Get-SolutionUpdateRun | Sort-Object StartTimeUtc -Descending | '
                 'Select-Object -First 1 | Select-Object DisplayName, State, '
                 'StartTimeUtc, EndTimeUtc, Duration | ConvertTo-Json -Depth 3',
-                target_node='any',
-                timeout=60
+                timeout=120
             )
             if result.success:
                 if result.parsed:
                     resolve_enums(result.parsed, {'State': SOLUTION_UPDATE_RUN_STATE})
                 self._set_cache('update_current', result.parsed)
+            else:
+                logger.warning(f"Current update check failed on all nodes: {result.stderr}")
         except Exception as e:
             logger.error(f"Current update check failed: {e}")
 
     def _check_update_history(self):
         try:
-            result = self.ps_executor.execute(
+            result = self._execute_with_node_failover(
                 'Get-SolutionUpdateRun | Sort-Object StartTimeUtc -Descending | '
                 'Select-Object DisplayName, State, StartTimeUtc, EndTimeUtc | '
                 'ConvertTo-Json -Depth 3',
-                target_node='any',
-                timeout=60
+                timeout=120
             )
             if result.success:
                 data = result.parsed if isinstance(result.parsed, list) else (
@@ -311,6 +330,8 @@ class HealthScheduler:
                 )
                 resolve_enums(data, {'State': SOLUTION_UPDATE_RUN_STATE})
                 self._set_cache('update_history', data)
+            else:
+                logger.warning(f"Update history check failed on all nodes: {result.stderr}")
         except Exception as e:
             logger.error(f"Update history check failed: {e}")
 

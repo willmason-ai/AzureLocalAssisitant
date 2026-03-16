@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ToolCall, SSEEvent } from '../types';
 
 // BUG-036: Use crypto.randomUUID for collision-free conversation IDs
@@ -9,6 +9,9 @@ function generateConversationId(): string {
   return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Batching interval for text deltas (ms) — reduces React re-renders during streaming
+const TEXT_FLUSH_INTERVAL = 50;
+
 export function useAIChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -16,6 +19,45 @@ export function useAIChat() {
   const [pendingToolCalls, setPendingToolCalls] = useState<ToolCall[]>([]);
   const [conversationId] = useState(generateConversationId);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Text batching: accumulate deltas in a ref, flush to state on interval
+  const pendingTextRef = useRef('');
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const flushPendingText = useCallback(() => {
+    if (!pendingTextRef.current) return;
+    const chunk = pendingTextRef.current;
+    pendingTextRef.current = '';
+    setMessages(prev => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (last?.role === 'assistant') {
+        last.content += chunk;
+      }
+      return [...updated];
+    });
+  }, []);
+
+  const startTextBatching = useCallback(() => {
+    if (flushTimerRef.current) return;
+    flushTimerRef.current = setInterval(flushPendingText, TEXT_FLUSH_INTERVAL);
+  }, [flushPendingText]);
+
+  const stopTextBatching = useCallback(() => {
+    if (flushTimerRef.current) {
+      clearInterval(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    // Final flush to ensure no text is lost
+    flushPendingText();
+  }, [flushPendingText]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+    };
+  }, []);
 
   const sendMessage = useCallback(async (message: string) => {
     const userMsg: ChatMessage = { role: 'user', content: message, timestamp: new Date().toISOString() };
@@ -25,6 +67,8 @@ export function useAIChat() {
 
     const assistantMsg: ChatMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, assistantMsg]);
+
+    startTextBatching();
 
     // BUG-027: Track consecutive SSE parse failures
     let parseFailures = 0;
@@ -81,6 +125,7 @@ export function useAIChat() {
         const errMsg = (error as Error).message;
         // BUG-026: Set error state for retry UI
         setStreamError(errMsg);
+        stopTextBatching();
         setMessages(prev => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
@@ -95,9 +140,10 @@ export function useAIChat() {
         });
       }
     } finally {
+      stopTextBatching();
       setIsStreaming(false);
     }
-  }, [conversationId]);
+  }, [conversationId, startTextBatching, stopTextBatching]);
 
   // BUG-026: Retry last failed message
   const retryLastMessage = useCallback(() => {
@@ -116,14 +162,8 @@ export function useAIChat() {
   const handleSSEEvent = useCallback((event: SSEEvent) => {
     switch (event.type) {
       case 'text_delta':
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === 'assistant') {
-            last.content += event.content || '';
-          }
-          return [...updated];
-        });
+        // Batch text into ref — flushed to state on interval
+        pendingTextRef.current += event.content || '';
         break;
 
       case 'tool_use':
@@ -168,6 +208,7 @@ export function useAIChat() {
     // Add a new assistant message for the follow-up response
     setMessages(prev => [...prev, { role: 'assistant', content: '', timestamp: new Date().toISOString() }]);
 
+    startTextBatching();
     let parseFailures = 0;
 
     try {
@@ -207,12 +248,11 @@ export function useAIChat() {
               parseFailures = 0;
 
               if (event.type === 'tool_result') {
-                // Show the command output
+                // Store command output in toolResults (rendered as collapsible in ChatMessage)
                 setMessages(prev => {
                   const updated = [...prev];
                   const last = updated[updated.length - 1];
                   if (last.role === 'assistant') {
-                    last.content += `**Command Output:**\n\`\`\`\n${event.content}\n\`\`\`\n\n`;
                     last.toolResults = [...(last.toolResults || []), {
                       toolCallId: toolCall.id,
                       content: event.content || '',
@@ -237,6 +277,7 @@ export function useAIChat() {
       ));
     } catch (error) {
       // BUG-028: Clean up orphaned assistant message on failure
+      stopTextBatching();
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -249,9 +290,10 @@ export function useAIChat() {
         tc.id === toolCall.id ? { ...tc, status: 'pending' as const } : tc
       ));
     } finally {
+      stopTextBatching();
       setIsStreaming(false);
     }
-  }, [conversationId, handleSSEEvent]);
+  }, [conversationId, handleSSEEvent, startTextBatching, stopTextBatching]);
 
   const rejectToolCall = useCallback((toolCallId: string) => {
     setPendingToolCalls(prev => prev.map(tc =>

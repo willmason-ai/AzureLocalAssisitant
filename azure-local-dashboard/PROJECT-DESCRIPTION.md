@@ -1,0 +1,7 @@
+# Azure Local AI Operations Dashboard
+
+## Project Description
+
+The Azure Local AI Operations Dashboard is a purpose-built, AI-native operations platform that fundamentally reimagines how infrastructure teams interact with Azure Local (Azure Stack HCI) clusters. Rather than relying on fragmented tools and manual PowerShell sessions, this application unifies real-time cluster health monitoring, update lifecycle management, credential expiration tracking, and Kubernetes workload visibility into a single, intelligent interface — with an embedded Claude AI assistant that can directly interrogate and orchestrate the environment through natural language.
+
+What sets this project apart is its architecture: a self-hosted, Dockerized application deployed on the very AKS Arc infrastructure it monitors, creating a closed-loop operations experience. The AI assistant doesn't just answer questions — it proposes and executes PowerShell commands with human-in-the-loop approval, analyzes live output, and provides contextual troubleshooting guided by deep Azure Local operational knowledge. The system enforces AI safety at three independent layers, proving that autonomous infrastructure intelligence and operational safety are not mutually exclusive. This is infrastructure operations reimagined from first principles — built by someone who refuses to accept the status quo of disconnected dashboards and reactive firefighting.

@@ -41,37 +41,8 @@ def cluster_status():
             'cache_age_seconds': round(scheduler.get_cache_age('cluster_health'), 1),
         })
 
-    # Cache miss — execute live via parallel PS calls
-    ps = get_ps_executor(current_app)
-
-    results = ps.execute_parallel([
-        {
-            'command': 'Get-ClusterNode | Select-Object Name, State, StatusInformation | ConvertTo-Json',
-            'target_node': 'any',
-            'timeout': 30,
-        },
-        {
-            'command': 'Get-HealthFault | Select-Object FaultId, FaultType, Severity, Description | ConvertTo-Json -Depth 3',
-            'target_node': 'any',
-            'timeout': 30,
-        },
-    ])
-
-    nodes_result, faults_result = results[0], results[1]
-
-    if not nodes_result.success:
-        return jsonify({'error': nodes_result.stderr, 'raw': nodes_result.stdout}), 500
-
-    resolve_enums(nodes_result.parsed, {
-        'State': CLUSTER_NODE_STATE,
-        'StatusInformation': CLUSTER_NODE_STATUS,
-    })
-
-    return jsonify({
-        'nodes': _ensure_list(nodes_result.parsed),
-        'health_faults': _ensure_list(faults_result.parsed) if faults_result.success else [],
-        'from_cache': False,
-    })
+    # Cache miss — scheduler is warming up
+    return jsonify({'nodes': [], 'health_faults': [], 'from_cache': False, 'warming_up': True})
 
 
 @cluster_bp.route('/nodes', methods=['GET'])
@@ -84,38 +55,8 @@ def cluster_nodes():
     if scheduler is not None and scheduler.has_cache('cluster_nodes_detail'):
         return jsonify(scheduler.get_cache('cluster_nodes_detail'))
 
-    ps = get_ps_executor(current_app)
-
-    # CIM-based query: much faster than Get-ComputerInfo (1-2s vs 15-30s).
-    cim_query = (
-        '$os = Get-CimInstance Win32_OperatingSystem; '
-        '$ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum; '
-        '$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum; '
-        '[PSCustomObject]@{ '
-        '  CsName = $os.CSName; '
-        '  OsUptime = ((Get-Date) - $os.LastBootUpTime).ToString(); '
-        '  CsNumberOfProcessors = $cpu; '
-        '  PhysicalMemoryBytes = $ram; '
-        '  WindowsProductName = $os.Caption; '
-        '  OsVersion = $os.Version '
-        '} | ConvertTo-Json'
-    )
-
-    # Run CIM queries on both nodes in parallel
-    parallel_cmds = [
-        {'command': cim_query, 'target_node': node_name, 'timeout': 30}
-        for node_name in ps.nodes
-    ]
-    results = ps.execute_parallel(parallel_cmds)
-
-    nodes_data = {}
-    for node_name, result in zip(ps.nodes, results):
-        if result.success:
-            nodes_data[node_name] = result.parsed
-        else:
-            nodes_data[node_name] = {'error': result.stderr}
-
-    return jsonify(nodes_data)
+    # Cache miss — scheduler is warming up
+    return jsonify({'warming_up': True})
 
 
 @cluster_bp.route('/storage', methods=['GET'])
@@ -132,35 +73,8 @@ def cluster_storage():
             'cache_age_seconds': round(scheduler.get_cache_age('storage_pools'), 1),
         })
 
-    ps = get_ps_executor(current_app)
-
-    results = ps.execute_parallel([
-        {
-            'command': (
-                'Get-StoragePool | Where-Object IsPrimordial -eq $false | '
-                'Select-Object FriendlyName, HealthStatus, OperationalStatus, Size, AllocatedSize | '
-                'ConvertTo-Json'
-            ),
-            'target_node': 'any',
-            'timeout': 30,
-        },
-        {
-            'command': (
-                'Get-VirtualDisk | Select-Object FriendlyName, OperationalStatus, HealthStatus, '
-                'Size, FootprintOnPool | ConvertTo-Json'
-            ),
-            'target_node': 'any',
-            'timeout': 30,
-        },
-    ])
-
-    pools, disks = results[0], results[1]
-
-    return jsonify({
-        'storage_pools': _ensure_list(pools.parsed) if pools.success else [],
-        'virtual_disks': _ensure_list(disks.parsed) if disks.success else [],
-        'from_cache': False,
-    })
+    # Cache miss — scheduler is warming up
+    return jsonify({'storage_pools': [], 'virtual_disks': [], 'from_cache': False, 'warming_up': True})
 
 
 @cluster_bp.route('/vms', methods=['GET'])
@@ -175,18 +89,8 @@ def cluster_vms():
             'cache_age_seconds': round(scheduler.get_cache_age('cluster_vms'), 1),
         })
 
-    ps = get_ps_executor(current_app)
-    result = ps.execute(
-        'Get-VM | Select-Object Name, State, CPUUsage, MemoryAssigned, Uptime, '
-        'Status, ComputerName | ConvertTo-Json -Depth 2',
-        target_node='any'
-    )
-    if not result.success:
-        return jsonify({'error': result.stderr}), 500
-
-    resolve_enums(result.parsed, {'State': VM_STATE})
-
-    return jsonify({'vms': _ensure_list(result.parsed), 'from_cache': False})
+    # Cache miss — scheduler is warming up
+    return jsonify({'vms': [], 'from_cache': False, 'warming_up': True})
 
 
 @cluster_bp.route('/time', methods=['GET'])

@@ -100,7 +100,7 @@ export default function DashboardPage() {
           <NodeCard
             key={node.Name}
             node={node}
-            info={nodesInfo?.[node.Name?.toLowerCase().replace('.presidiorocks.com', '')]}
+            info={nodesInfo?.[String(node.Name ?? '').toLowerCase().replace('.presidiorocks.com', '')]}
           />
         ))}
       </div>

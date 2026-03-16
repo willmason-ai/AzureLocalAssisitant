@@ -33,50 +33,11 @@ def credential_status():
             'cache_age_seconds': round(scheduler.get_cache_age('kva_token'), 1),
         })
 
-    # Cache miss — fall back to live PS calls
-    ps = get_ps_executor(current_app)
-    results = {}
-
-    # KVA token file age — normalize DateTime to ISO string
-    kva_path = current_app.config.get('KVA_TOKEN_PATH', '').replace('\\', '\\\\')
-    kva_result = ps.execute(
-        f'$f = Get-Item "{kva_path}"; '
-        '[PSCustomObject]@{ '
-        '  Name = $f.Name; '
-        '  LastWriteTime = $f.LastWriteTime.ToString("o"); '
-        '  CreationTime = $f.CreationTime.ToString("o") '
-        '} | ConvertTo-Json',
-        target_node='any'
-    )
-    results['kva_token'] = kva_result.parsed if kva_result.success else {'error': kva_result.stderr}
-
-    # Azure Stack HCI registration
-    hci_result = ps.execute(
-        'Get-AzureStackHCI | ConvertTo-Json -Depth 3',
-        target_node='any'
-    )
-    if hci_result.success and hci_result.parsed:
-        resolve_enums(hci_result.parsed, {
-            'ConnectionStatus': HCI_CONNECTION_STATUS,
-            'RegistrationStatus': HCI_REGISTRATION_STATUS,
-        })
-    results['hci_registration'] = hci_result.parsed if hci_result.success else {'error': hci_result.stderr}
-
-    # MOC node health
-    moc_result = ps.execute(
-        'Get-MocNode -location "MocLocation" | '
-        'Select-Object name, fqdn, health, state | ConvertTo-Json',
-        target_node='any'
-    )
-    if moc_result.success and moc_result.parsed:
-        resolve_enums(moc_result.parsed, {
-            'health': MOC_HEALTH,
-            'state': MOC_STATE,
-        })
-    results['moc_nodes'] = moc_result.parsed if moc_result.success else {'error': moc_result.stderr}
-
-    results['from_cache'] = False
-    return jsonify(results)
+    # Cache miss — scheduler is warming up
+    return jsonify({
+        'kva_token': None, 'hci_registration': None, 'moc_nodes': None,
+        'from_cache': False, 'warming_up': True
+    })
 
 
 @credentials_bp.route('/arb-status', methods=['GET'])

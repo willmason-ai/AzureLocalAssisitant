@@ -2,18 +2,19 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { User, Bot, Copy, Check } from 'lucide-react';
-import { useState } from 'react';
+import { User, Bot, Copy, Check, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
+import { useState, memo } from 'react';
 import type { ChatMessage as ChatMessageType, ToolCall } from '../../types';
 import CommandBlock from './CommandBlock';
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  isLastAndStreaming?: boolean;
   onExecuteToolCall?: (toolCall: ToolCall) => void;
   onRejectToolCall?: (toolCallId: string) => void;
 }
 
-export default function ChatMessage({ message, onExecuteToolCall, onRejectToolCall }: ChatMessageProps) {
+export default function ChatMessage({ message, isLastAndStreaming, onExecuteToolCall, onRejectToolCall }: ChatMessageProps) {
   const isUser = message.role === 'user';
 
   return (
@@ -30,30 +31,22 @@ export default function ChatMessage({ message, onExecuteToolCall, onRejectToolCa
         }`}>
           {isUser ? (
             <p className="text-slate-200 whitespace-pre-wrap">{message.content}</p>
-          ) : (
+          ) : isLastAndStreaming ? (
+            // While streaming: render plain text (fast, no markdown overhead)
             <div className="prose prose-invert prose-sm max-w-none">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code({ className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || '');
-                    const codeStr = String(children).replace(/\n$/, '');
+              <p className="text-slate-200 whitespace-pre-wrap">{message.content}<span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" /></p>
+            </div>
+          ) : (
+            // After streaming: render full markdown with syntax highlighting
+            <RenderedMarkdown content={message.content} />
+          )}
 
-                    if (match) {
-                      return (
-                        <CodeBlockWithCopy language={match[1]} code={codeStr} />
-                      );
-                    }
-                    return (
-                      <code className="bg-slate-900 px-1 py-0.5 rounded text-xs" {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+          {/* Collapsible command output sections */}
+          {message.toolResults && message.toolResults.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {message.toolResults.map((tr, i) => (
+                <CollapsibleOutput key={tr.toolCallId || i} content={tr.content} success={tr.success} />
+              ))}
             </div>
           )}
         </div>
@@ -67,6 +60,71 @@ export default function ChatMessage({ message, onExecuteToolCall, onRejectToolCa
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+// Memoized markdown renderer — only re-renders when content actually changes
+const RenderedMarkdown = memo(function RenderedMarkdown({ content }: { content: string }) {
+  return (
+    <div className="prose prose-invert prose-sm max-w-none">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeStr = String(children).replace(/\n$/, '');
+
+            if (match) {
+              return (
+                <CodeBlockWithCopy language={match[1]} code={codeStr} />
+              );
+            }
+            return (
+              <code className="bg-slate-900 px-1 py-0.5 rounded text-xs" {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+});
+
+function CollapsibleOutput({ content, success }: { content: string; success: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Count lines for the summary
+  const lines = content.split('\n');
+  const lineCount = lines.length;
+  const isJson = content.trim().startsWith('{') || content.trim().startsWith('[');
+
+  return (
+    <div className={`rounded border ${success ? 'border-slate-600/50 bg-slate-900/50' : 'border-red-600/50 bg-red-900/20'}`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-2.5 py-1.5 flex items-center gap-2 hover:bg-slate-700/30 transition-colors rounded"
+      >
+        {expanded
+          ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        }
+        <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+        <span className="text-[11px] text-slate-400 flex-1 text-left">
+          {success ? 'Command Output' : 'Error Output'}
+          <span className="text-slate-600 ml-1.5">
+            ({lineCount} line{lineCount !== 1 ? 's' : ''}{isJson ? ', JSON' : ''})
+          </span>
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-1 pb-1">
+          <CodeBlockWithCopy language={isJson ? 'json' : 'text'} code={content} />
+        </div>
+      )}
     </div>
   );
 }

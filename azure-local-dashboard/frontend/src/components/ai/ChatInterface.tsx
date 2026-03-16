@@ -81,6 +81,7 @@ export default function ChatInterface() {
           <ChatMessage
             key={i}
             message={msg}
+            isLastAndStreaming={isStreaming && i === messages.length - 1}
             onExecuteToolCall={executeToolCall}
             onRejectToolCall={rejectToolCall}
           />

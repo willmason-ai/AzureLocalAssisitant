@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Clock, CheckCircle, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Download, Clock, CheckCircle, Play, ChevronDown, ChevronUp, Calendar, Terminal, Copy, Check } from 'lucide-react';
 import { useUpdates, useCurrentUpdate, useUpdateHistory, useStartUpdate } from '../hooks/useUpdates';
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -8,16 +8,101 @@ import ErrorAlert from '../components/common/ErrorAlert';
 import UpdateTimeline from '../components/updates/UpdateTimeline';
 import { safeString } from '../utils/safeRender';
 
+function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function durationStr(start: string | null | undefined, end: string | null | undefined): string | null {
+  if (!start || !end) return null;
+  try {
+    const ms = new Date(end).getTime() - new Date(start).getTime();
+    if (isNaN(ms) || ms < 0) return null;
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  } catch {
+    return null;
+  }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="p-1 rounded hover:bg-slate-600 transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+    </button>
+  );
+}
+
+function StaticDataBanner() {
+  const [expanded, setExpanded] = useState(false);
+  const updatesCmd = 'Get-SolutionUpdate | Select-Object DisplayName, Version, State, InstalledDate, DateCreated | Format-Table -AutoSize';
+  const historyCmd = 'Get-SolutionUpdateRun | Sort-Object StartTimeUtc -Descending | Select-Object DisplayName, State, StartTimeUtc, EndTimeUtc | Format-Table -AutoSize';
+
+  return (
+    <div className="bg-amber-900/15 border border-amber-500/30 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-amber-900/10 transition-colors"
+      >
+        <Terminal className="w-4 h-4 text-amber-400 shrink-0" />
+        <p className="text-xs text-amber-300 text-left flex-1">
+          Showing approximate dates. To get exact install dates, RDP to a cluster node and run the commands below.
+        </p>
+        <ChevronDown className={`w-4 h-4 text-amber-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] text-amber-400/70 uppercase tracking-wider font-semibold">Update install dates</p>
+              <CopyButton text={updatesCmd} />
+            </div>
+            <pre className="bg-slate-900/80 rounded px-3 py-2 text-xs text-slate-300 font-mono overflow-x-auto">{updatesCmd}</pre>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] text-amber-400/70 uppercase tracking-wider font-semibold">Update run history with timestamps</p>
+              <CopyButton text={historyCmd} />
+            </div>
+            <pre className="bg-slate-900/80 rounded px-3 py-2 text-xs text-slate-300 font-mono overflow-x-auto">{historyCmd}</pre>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            These commands must be run locally on dell-as01 or dell-as02 via RDP (they timeout over remote WinRM).
+            Paste the output to the AI Assistant and it can update the stored dates.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UpdatesPage() {
   const { data: updates, isLoading, isError, error, refetch } = useUpdates();
   const { data: currentRun } = useCurrentUpdate();
   const { data: history } = useUpdateHistory();
   const startUpdate = useStartUpdate();
   const [showConfirm, setShowConfirm] = useState(false);
-  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-20" />;
   if (isError) return <ErrorAlert message={(error as any)?.response?.data?.error || (error as any)?.message} onRetry={() => refetch()} />;
+
+  const isStaticFallback = updates?.static_fallback;
 
   const updateList = Array.isArray(updates?.updates) ? updates.updates : updates?.updates ? [updates.updates] : [];
   const historyList = Array.isArray(history?.history) ? history.history : history?.history ? [history.history] : [];
@@ -44,6 +129,8 @@ export default function UpdatesPage() {
         )}
       </div>
 
+      {isStaticFallback && <StaticDataBanner />}
+
       {/* Section 1: Current State Hero Card */}
       <div className="bg-gradient-to-r from-slate-800 to-slate-800/80 border border-slate-700 rounded-lg p-5">
         <div className="flex items-center justify-between">
@@ -53,6 +140,12 @@ export default function UpdatesPage() {
               <>
                 <h3 className="text-xl font-bold text-slate-100">{safeString(currentVersion.DisplayName)}</h3>
                 <p className="text-sm font-mono text-blue-400 mt-1">v{safeString(currentVersion.Version)}</p>
+                {currentVersion.InstalledDate && (
+                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    Installed {formatDateTime(currentVersion.InstalledDate)}
+                  </p>
+                )}
               </>
             ) : (
               <h3 className="text-xl font-bold text-slate-400">Unknown</h3>
@@ -87,7 +180,7 @@ export default function UpdatesPage() {
           <p className="text-sm text-slate-300">{safeString(currentRun.current_run.DisplayName)}</p>
           <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
             <StatusBadge status={currentRun.current_run.State} />
-            <span>Started: {safeString(currentRun.current_run.StartTimeUtc)}</span>
+            <span>Started: {formatDateTime(currentRun.current_run.StartTimeUtc)}</span>
           </div>
         </div>
       )}
@@ -102,7 +195,7 @@ export default function UpdatesPage() {
         )}
       </div>
 
-      {/* Section 3: Update Run History (collapsible) */}
+      {/* Section 3: Update Run History (expanded by default) */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
         <button
           onClick={() => setHistoryExpanded(!historyExpanded)}
@@ -122,17 +215,26 @@ export default function UpdatesPage() {
             {historyList.length === 0 ? (
               <p className="p-4 text-sm text-slate-500">No update runs found</p>
             ) : (
-              historyList.map((run: any, i: number) => (
-                <div key={i} className="px-4 py-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-200">{safeString(run.DisplayName)}</p>
-                    <p className="text-xs text-slate-500">
-                      {safeString(run.StartTimeUtc)} - {safeString(run.EndTimeUtc, 'In Progress')}
-                    </p>
+              historyList.map((run: any, i: number) => {
+                const duration = durationStr(run.StartTimeUtc, run.EndTimeUtc);
+                return (
+                  <div key={i} className="px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-200">{safeString(run.DisplayName)}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <p className="text-xs text-slate-500">
+                          {formatDateTime(run.StartTimeUtc)}
+                          {run.EndTimeUtc ? ` → ${formatDateTime(run.EndTimeUtc)}` : ' — In Progress'}
+                        </p>
+                        {duration && (
+                          <span className="text-xs text-slate-600">({duration})</span>
+                        )}
+                      </div>
+                    </div>
+                    <StatusBadge status={run.State} />
                   </div>
-                  <StatusBadge status={run.State} />
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

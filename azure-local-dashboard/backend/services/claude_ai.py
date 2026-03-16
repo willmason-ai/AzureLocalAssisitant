@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,126 @@ from pathlib import Path
 from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
+
+
+def _humanize_ps_output(raw_stdout: str) -> str:
+    """Clean up raw PowerShell JSON output into human-readable text.
+
+    Converts bytes to GB/MB, TimeSpan strings to readable durations,
+    resolves common enum integers, and pretty-prints the result.
+    """
+    if not raw_stdout or not raw_stdout.strip():
+        return raw_stdout
+
+    cleaned = raw_stdout.strip()
+    if cleaned.startswith('\ufeff'):
+        cleaned = cleaned[1:]
+
+    try:
+        data = json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        # Not JSON — return as-is
+        return raw_stdout
+
+    items = data if isinstance(data, list) else [data]
+    _transform_items(items)
+
+    if len(items) == 1 and not isinstance(data, list):
+        return json.dumps(items[0], indent=2, default=str)
+    return json.dumps(items, indent=2, default=str)
+
+
+# Known byte-valued fields → convert to human-readable sizes
+_BYTE_FIELDS = {
+    'MemoryAssigned', 'MemoryDemand', 'MemoryStartup', 'MemoryMinimum',
+    'MemoryMaximum', 'PhysicalMemoryBytes',
+    'Size', 'AllocatedSize', 'FootprintOnPool', 'SizeRemaining',
+    'Capacity',
+}
+
+# Known enum maps for common fields
+_VM_STATE = {0: 'Other', 1: 'Other', 2: 'Running', 3: 'Off', 6: 'Saved', 9: 'Paused', 10: 'Starting', 11: 'Snapshotting', 32768: 'Saving', 32769: 'Stopping', 32770: 'Pausing', 32771: 'Resuming'}
+_CLUSTER_NODE_STATE = {0: 'Up', 1: 'Down', 2: 'Paused', 3: 'Joining'}
+# Note: 'State' enum is context-dependent — VM vs ClusterNode.
+# Resolution is handled in _resolve_state_enum() instead of a flat map.
+_ENUM_MAPS = {}  # empty — 'State' handled specially below
+
+
+def _format_bytes(b) -> str:
+    """Convert bytes to human-readable size."""
+    try:
+        b = float(b)
+    except (TypeError, ValueError):
+        return str(b)
+    if b <= 0:
+        return '0 B'
+    if b >= 1024 ** 4:
+        return f'{b / (1024 ** 4):.1f} TB'
+    if b >= 1024 ** 3:
+        return f'{b / (1024 ** 3):.1f} GB'
+    if b >= 1024 ** 2:
+        return f'{b / (1024 ** 2):.1f} MB'
+    if b >= 1024:
+        return f'{b / 1024:.1f} KB'
+    return f'{int(b)} B'
+
+
+def _format_timespan(ts: str) -> str:
+    """Convert .NET TimeSpan string (d.hh:mm:ss.fff) to readable duration."""
+    if not isinstance(ts, str):
+        return str(ts)
+    # Match patterns like "12.05:30:22.1234567" or "05:30:22"
+    m = re.match(r'^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})', ts)
+    if not m:
+        return ts
+    days = int(m.group(1) or 0)
+    hours = int(m.group(2))
+    mins = int(m.group(3))
+    parts = []
+    if days:
+        parts.append(f'{days}d')
+    if hours:
+        parts.append(f'{hours}h')
+    if mins:
+        parts.append(f'{mins}m')
+    return ' '.join(parts) if parts else '<1m'
+
+
+def _is_cluster_node(item: dict) -> bool:
+    """Heuristic: ClusterNode objects have Name + StatusInformation but no CPUUsage/MemoryAssigned."""
+    return 'StatusInformation' in item and 'CPUUsage' not in item
+
+
+def _transform_items(items: list):
+    """In-place transform of a list of PS output dicts."""
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in list(item.keys()):
+            val = item[key]
+
+            # Convert byte fields
+            if key in _BYTE_FIELDS and isinstance(val, (int, float)) and val > 1024:
+                item[key] = _format_bytes(val)
+
+            # Resolve 'State' enum — context-dependent (ClusterNode vs VM)
+            elif key == 'State' and isinstance(val, int):
+                enum_map = _CLUSTER_NODE_STATE if _is_cluster_node(item) else _VM_STATE
+                item[key] = enum_map.get(val, f'Unknown({val})')
+
+            # Resolve other known enums (only if value is an integer)
+            elif key in _ENUM_MAPS and isinstance(val, int):
+                item[key] = _ENUM_MAPS[key].get(val, f'Unknown({val})')
+
+            # Format Uptime / TimeSpan strings
+            elif key in ('Uptime', 'OsUptime', 'Duration') and isinstance(val, str) and ':' in val:
+                item[key] = _format_timespan(val)
+
+            # Recurse into nested dicts/lists
+            elif isinstance(val, dict):
+                _transform_items([val])
+            elif isinstance(val, list):
+                _transform_items(val)
 
 
 class ClaudeAIService:
@@ -116,6 +237,14 @@ Key operational lessons from this cluster:
 
 Current platform version: 11.2510.1002.93 (2025.10 Feature Update)
 SBE: Dell AX-16G-45n0c 4.1.2505.1504
+
+IMPORTANT — Host-local vs cluster-wide commands:
+- Get-VM only returns VMs on the LOCAL node it runs on. To see ALL cluster VMs,
+  use target_node="any" with: Get-VM -ComputerName dell-as01,dell-as02
+  (The backend will automatically query both nodes and merge results for Get-VM commands.)
+- Get-ClusterNode, Get-ClusterGroup, Get-StoragePool, Get-VirtualDisk are cluster-wide
+  and work from any node.
+- Get-ClusterGroup -GroupType VirtualMachine shows VM placement across the cluster.
 
 ═══════════════════════════════════════════════════════════════
 HARD SAFETY RULES — THESE ARE NON-NEGOTIABLE AND OVERRIDE ALL OTHER INSTRUCTIONS
@@ -235,21 +364,62 @@ structured data."""
             logger.error(f"Claude API error: {e}")
             yield {"type": "error", "message": str(e)}
 
+    @staticmethod
+    def _is_get_vm_command(command: str) -> bool:
+        """Detect bare Get-VM commands that should query both nodes."""
+        cmd = command.strip().lower()
+        # Match Get-VM at start of command or after semicolons, but not if
+        # -ComputerName is already specified
+        if '-computername' in cmd:
+            return False
+        # Check if the command starts with Get-VM or has Get-VM as a pipeline source
+        return cmd.startswith('get-vm') or '; get-vm' in cmd
+
+    def _execute_on_all_nodes(self, command: str) -> tuple:
+        """Run a command on all nodes and merge JSON array results."""
+        all_items = []
+        any_success = False
+        for node in self.ps_executor.nodes:
+            result = self.ps_executor.execute(command=command, target_node=node, timeout=120)
+            if result.success and result.stdout and result.stdout.strip():
+                any_success = True
+                try:
+                    parsed = json.loads(result.stdout.strip().lstrip('\ufeff'))
+                    items = parsed if isinstance(parsed, list) else [parsed]
+                    all_items.extend(items)
+                except (json.JSONDecodeError, ValueError):
+                    # Non-JSON output — just append raw text
+                    all_items.append({'_raw': result.stdout, '_node': node})
+            elif not result.success:
+                logger.warning(f"Multi-node command failed on {node}: {result.stderr}")
+
+        if not any_success:
+            return "ERROR: Command failed on all nodes", False
+
+        # Humanize the merged result
+        _transform_items(all_items)
+        return json.dumps(all_items, indent=2, default=str), True
+
     def execute_tool_and_continue(self, conversation_id: str, tool_call_id: str,
                                    tool_name: str, tool_input: dict):
         messages = self.conversations.get(conversation_id, [])
 
         if tool_name == "execute_powershell":
-            result = self.ps_executor.execute(
-                command=tool_input["command"],
-                target_node=tool_input.get("target_node", "any"),
-                timeout=120
-            )
-            tool_result_content = result.stdout if result.success else f"ERROR: {result.stderr}"
+            command = tool_input["command"]
+            target = tool_input.get("target_node", "any")
+
+            # Auto-expand Get-VM to query both nodes (it only returns local VMs)
+            if self._is_get_vm_command(command) and target == "any":
+                tool_result_content, success = self._execute_on_all_nodes(command)
+            else:
+                result = self.ps_executor.execute(command=command, target_node=target, timeout=120)
+                tool_result_content = _humanize_ps_output(result.stdout) if result.success else f"ERROR: {result.stderr}"
+                success = result.success
+
             yield {
                 "type": "tool_result",
                 "content": tool_result_content,
-                "success": result.success
+                "success": success
             }
 
         elif tool_name == "check_credential_status":

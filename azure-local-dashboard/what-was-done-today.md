@@ -28,89 +28,155 @@ The **Azure Local AI Operations Dashboard** is a custom-built, Dockerized web ap
 
 ---
 
-## Work Completed Today
+## Work Completed Today (March 16, 2026)
 
-### Version: 2.3.1 -> 2.4.0 -> 2.5.0
+### Version: 2.3.1 → 2.4.0 → 2.5.0 → 2.5.1 → 2.6.0 → 2.6.1 → 2.6.2 → 2.7.0 → 2.7.1
 
-### 00. Updates Timeline Fix + Kubernetes Workloads + Init Container Fix (v2.5.0)
+---
+
+### v2.7.1 — AI Chat Streaming Performance
+
+**Text delta batching**:
+- Replaced per-delta React state updates with a batched flush approach — text deltas accumulate in a ref and flush to state every 50ms
+- Dramatically reduces React re-renders during streaming (from hundreds of updates to ~20/sec)
+- Proper cleanup on unmount, final flush on stream end to ensure no text is lost
+
+**Streaming-aware markdown rendering**:
+- While streaming: messages render as plain `<p>` text with a pulsing cursor — no markdown parsing overhead during active typing
+- After streaming completes: full ReactMarkdown + Prism syntax highlighting kicks in
+- `isLastAndStreaming` prop passed from ChatInterface to ChatMessage controls the switch
+
+**Memoized markdown renderer**:
+- Wrapped the full ReactMarkdown component in `React.memo()` (`RenderedMarkdown` component) — prevents re-rendering completed messages when new messages arrive or state changes elsewhere in the chat
+
+---
+
+### v2.7.0 — Get-VM Multi-Node Awareness
+
+**Auto-expand Get-VM to query both cluster nodes**:
+- `Get-VM` only returns VMs on the local node it runs on — this was causing the AI to report incomplete VM lists
+- Added `_is_get_vm_command()` detection and `_execute_on_all_nodes()` to `claude_ai.py` — when the AI runs `Get-VM` with `target_node="any"`, the backend automatically queries both dell-as01 and dell-as02 and merges results
+- Scheduler's `_check_cluster_vms()` also updated to query both nodes and merge
+- System prompt updated with guidance on host-local vs cluster-wide commands
+
+---
+
+### v2.6.2 — Dashboard Crash Fix
+
+**Fix: `l.toLowerCase is not a function` crash on Dashboard**
+- **Root cause**: `node.Name?.toLowerCase()` on DashboardPage.tsx — optional chaining only guards against `null`/`undefined`, not against calling `.toLowerCase()` on a non-string value (e.g., a number returned by PowerShell). The minified `l` in the error was the minified variable for `node.Name`.
+- **Fix**: Wrapped with `String(node.Name ?? '').toLowerCase()` to safely coerce any PowerShell return type to a string before calling string methods.
+- Audited all `.toLowerCase()` calls across the frontend — all other locations were already protected with `String()` wrapping from previous fixes.
+
+---
+
+### v2.6.1 — Collapsible AI Command Output
+
+**Collapsible tool results in AI chat**:
+- Command output from executed PowerShell commands is now rendered as collapsible sections in the chat, collapsed by default
+- Each section shows a summary bar: "Command Output (24 lines, JSON)" with expand/collapse toggle
+- When expanded, shows full syntax-highlighted output with copy button
+- Keeps the chat clean — users see Claude's humanized analysis by default and can drill into raw output when needed
+- Changed `useAIChat.ts` to store tool results separately from message content (in `toolResults` array)
+- Added `CollapsibleOutput` component to `ChatMessage.tsx` with ChevronDown/ChevronRight/Terminal icons
+
+---
+
+### v2.6.0 — AI Output Humanization + Update Data Fixes
+
+**PowerShell output humanization for AI chat**:
+- Added `_humanize_ps_output()` function to `claude_ai.py` that transforms raw PowerShell JSON into human-readable text
+- Converts byte fields (MemoryAssigned, Size, AllocatedSize, etc.) to GB/MB with `_format_bytes()`
+- Resolves .NET integer enums to labels: VM states (Running/Off/Saved/Paused), cluster node states (Up/Down/Paused), disk health/operational status
+- Formats .NET TimeSpan objects to "3d 14h 22m" strings with `_format_timespan()`
+- Pretty-prints with 2-space indent for readability
+
+**Updates page data accuracy**:
+- Fixed false "Update Available" badge — the 2025.10 Cumulative Update (12.2510.1002.531) was already installed but static data still showed it as "Ready"
+- Updated KNOWN_UPDATES to include the 2025.10 Cumulative Update as "Installed" with InstalledDate
+- Added install dates and descriptions to all static update entries
+- Added update timeline with date display for each update entry (Calendar icon + formatted date)
+- Added `StaticDataBanner` component with instructions for getting exact dates via RDP, including copyable PowerShell commands
+
+---
+
+### v2.5.1 — Stale-While-Revalidate Caching + Worker Dedup
+
+**Caching Performance (FIX-003)**:
+- Routes were falling through to live PowerShell (2-5s) whenever cache TTL expired, causing visible page load delays
+- Implemented stale-while-revalidate pattern: all routes (`cluster.py`, `updates.py`, `credentials.py`) now serve cached data immediately if any cache exists (`has_cache()` instead of TTL check)
+- Background scheduler continues refreshing data on its own intervals — users never wait for PowerShell
+- Only cold starts (before scheduler warms up) fall through to live queries
+- Added static fallback data (KNOWN_UPDATES, KNOWN_HISTORY) for Updates page — never blocks on live PowerShell even on cold start
+
+**Gunicorn Worker Deduplication**:
+- Discovered 4 Gunicorn workers were each starting their own `HealthScheduler`, quadrupling WinRM calls to the cluster
+- Reduced to 1 worker with gevent async (`--workers 1 --worker-class gevent --worker-connections 200`)
+- Gevent handles concurrency via greenlets — no loss in throughput, 75% reduction in WinRM load
+
+**Node failover for update commands**:
+- Added `_execute_with_node_failover()` method to scheduler — tries both cluster nodes for update commands
+- Increased timeout from 60s to 120s for update commands
+- `Get-SolutionUpdate` cmdlets still consistently fail via remote WinRM/SSH (OOM killed) — static fallback data ensures the page always loads
+
+---
+
+### v2.5.0 — Updates Timeline Fix + Kubernetes Workloads + Init Container Fix
 
 **Updates Timeline (FIX-002)**:
 - Superseded/skipped updates were incorrectly shown as "Installing" with pulsing blue indicators
-- States like `HasPrerequisite`, `NotApplicableBecauseAnotherUpdateIsInProgress`, `Recalled`, `Invalid`, and all `*Failed` states now render as grey with appropriate labels ("Skipped", "Superseded", "Recalled", "Failed")
-- Only truly actionable updates (Ready, Downloading, Preparing, Installing) now pulse
+- States like `HasPrerequisite`, `NotApplicableBecauseAnotherUpdateIsInProgress`, `Recalled`, `Invalid`, and all `*Failed` states now render as grey with appropriate labels
 
 **Kubernetes Workloads Page (FIX-004)**:
-- Completely rebuilt the Kubernetes page to show live workload data via the in-cluster Kubernetes API (no `az login` required)
+- Completely rebuilt the Kubernetes page to show live workload data via the in-cluster Kubernetes API
 - Summary cards: namespace count, deployment count, pod count, running pods, unique images
-- Deployments section: shows each deployment with namespace, ready/replica counts, and container images
-- Pods section: grouped by namespace, showing container images, state, restart counts, and node assignment
-- Container images section: full list of all unique images running on the cluster
-- Added RBAC `ClusterRole` + `ClusterRoleBinding` (`k8s/rbac.yaml`) granting read-only access to pods, deployments, namespaces, services, replicasets, daemonsets, and statefulsets
-- Auto-refreshes every 30 seconds
+- Deployments and pods sections with full detail
+- Added RBAC ClusterRole + ClusterRoleBinding for read-only access
 
 **Init Container Fix (FIX-001)**:
-- The `fix-data-permissions` init container was failing with `CreateContainerConfigError` because its `runAsUser: 0` conflicted with the pod-level `runAsNonRoot: true` security context
-- Added `runAsNonRoot: false` to the init container's securityContext to override the pod-level policy
-- Re-applied `deployment.yaml` (previous deploys only used `kubectl rollout restart` which doesn't pick up manifest changes)
+- Fixed `CreateContainerConfigError` — init container's `runAsUser: 0` conflicted with pod-level `runAsNonRoot: true`
 
-**Tracking**:
-- Created `FIXES-TODO.md` to track open issues (caching performance, API key persistence across restarts)
+---
 
-### 0. Sidebar Reorder + AI API Key Settings (v2.4.0)
-- **Sidebar reorder**: Moved "AI Assistant" from position 6 to position 2 (below Dashboard, above Updates) for faster access to the AI chat
-- **AI Configuration in Settings**: Added a new "AI Configuration" section to the Settings page that allows configuring the Anthropic API key directly from the UI instead of requiring environment variable changes and container restarts
-  - Shows current key status (masked display, source: environment vs user-configured)
-  - Password input with show/hide toggle for entering new keys
-  - Validates key format (must start with `sk-ant-`)
-  - Stores key encrypted (AES-256-GCM) in the credential store, persisted across restarts
-  - Hot-reloads the Claude AI service at runtime — no restart needed
-  - On startup, checks for a stored key and uses it over the env var
-- **Backend changes**: Added `GET /api/settings/ai-config` and `PUT /api/settings/ai-config` endpoints, plus `update_api_key()` method on `ClaudeAIService`
+### v2.4.0 — Sidebar Reorder + AI API Key Settings
 
-### 1. Major Performance Overhaul (v2.3.0)
-Addressed the primary complaint that the dashboard was slow due to PowerShell-driven data fetching:
+- **Sidebar reorder**: Moved "AI Assistant" from position 6 to position 2 (below Dashboard, above Updates)
+- **AI Configuration in Settings**: Added UI for configuring the Anthropic API key — encrypted storage (AES-256-GCM), hot-reload without restart, masked display
 
-- **Cache-first architecture**: Built a background scheduler that pre-fetches all cluster data (health, storage, VMs, updates, credentials) on configurable intervals. API routes now serve from cache with TTL checks instead of running live PowerShell commands on every request.
-- **Parallel PowerShell execution**: Added `execute_parallel()` method using `concurrent.futures.ThreadPoolExecutor` so multiple WinRM commands run simultaneously instead of sequentially (e.g., cluster status + health faults + storage in one batch).
-- **WinRM connection pooling**: Implemented session caching with 300-second expiry and auto-retry on stale sessions, eliminating the 3-10 second TCP+TLS+NTLM handshake overhead on every command.
-- **WebSocket push updates**: Integrated Flask-SocketIO on the backend and socket.io-client on the frontend. When the scheduler refreshes cached data, it emits `cluster_update` events that instantly invalidate the matching React Query cache keys — the UI updates in real-time without waiting for the next polling interval.
-- **Frontend code splitting**: Converted all page imports to `React.lazy()` with `<Suspense>` boundaries, plus Vite `manualChunks` configuration to split vendor bundles (react, tanstack-query, recharts, markdown) for faster initial load.
+---
 
-### 2. Bug Fix: Updates Page Crash (v2.3.0)
-- **Root cause**: PowerShell's `ConvertTo-Json` serializes .NET enums as integers. The `State` field on update objects was arriving as `7` instead of `"Installed"`, causing `(O.State || "").toLowerCase()` to throw "is not a function" on a number.
-- **Fix**: Added `SOLUTION_UPDATE_STATE` and `SOLUTION_UPDATE_RUN_STATE` enum resolution maps in the backend (`backend/utils/enums.py`). All update routes now resolve numeric enum values to human-readable strings before sending to the frontend.
+### v2.3.1 — Bug Fixes + Platform Version Display
 
-### 3. Bug Fix: Update Timeline State Display (v2.3.1)
-- **Problem**: The Update Timeline component showed states like "Installing" and "HasPrerequisite" for updates that are actually fully installed, because the enum resolution was mapping correctly but the timeline visualization didn't handle all possible state strings.
-- **Fix**: Updated `UpdateTimeline.tsx` state icon and dot color functions to handle the full set of states: HasPrerequisite, Preparing, Installing, HealthChecking, ScanInProgress, ReadyToInstall, and more. Added `String()` coercion around all `.toLowerCase()` calls as a safety net.
+- Fixed Update Timeline state display for all PowerShell enum states
+- Added platform version display to Dashboard cluster health card
+- Fixed AI Assistant 500 error (permission denied on `/app/data/conversations` — added init container)
+- Version auto-increment system with sidebar display
 
-### 4. New Feature: Platform Version Display on Dashboard (v2.3.1)
-- **Problem**: The current platform version was only visible on the Updates page. Users wanted it prominently displayed on the main dashboard.
-- **Fix**: Added platform version display to the Cluster Health summary card on the Dashboard page. It pulls the highest-version installed update from the updates API and shows it as "Platform: v11.2510.1002.93" with a server icon.
+---
 
-### 5. Bug Fix: AI Assistant 500 Error (v2.3.1)
-- **Root cause**: `PermissionError: [Errno 13] Permission denied: '/app/data/conversations'`. The Kubernetes PVC mount at `/app/data` overwrites the directory created during Docker build. The container runs as uid 1000 but the PVC volume has root ownership.
-- **Fix**: Added an `initContainer` to the Kubernetes deployment that runs as root (busybox) to `mkdir -p /app/data/conversations && chown -R 1000:1000 /app/data` before the main container starts.
+### v2.3.0 — Major Performance Overhaul
 
-### 6. Version Auto-Increment System
-- Set up version display in the sidebar showing the current app version (pulled from package.json at build time via Vite's `define` plugin)
-- Bumped from 2.3.0 to 2.3.1 with this deploy
-- Version is now tagged on both Docker images (`:latest` and `:2.3.1`)
+- Cache-first architecture with background scheduler
+- Parallel PowerShell execution via ThreadPoolExecutor
+- WinRM connection pooling with 300s expiry
+- WebSocket push updates via Flask-SocketIO
+- Frontend code splitting with React.lazy()
+- Fixed Updates page crash (PowerShell numeric enum resolution)
 
-### 7. Deployment Pipeline
-- Full pipeline executed: git commit -> git push -> Docker build -> ACR push -> AKS rolling restart
-- App is live on AKS Arc at the cluster's LoadBalancer IP
+---
 
-### Previously completed (earlier today):
-- Fixed 26 bugs from a comprehensive bug report (enum resolution, credential page fixes, hardcoded values, error handling improvements, audit logging, etc.)
-- Added version number display in the UI sidebar
-- Multiple build/push/deploy cycles throughout the day
+### Previously completed (earlier in the week):
+- Fixed 26 bugs from a comprehensive bug report
+- Added version number display in UI sidebar
+- Multiple build/push/deploy cycles
 
 ---
 
 ## Current State
-- **Version**: 2.5.0
+- **Version**: 2.7.1
 - **Deployed to**: AKS Arc (Azurelocal-AKS cluster, namespace: azure-local-ops)
-- **Container Registry**: cravsnetmon.azurecr.io/azure-local-dashboard:2.5.0
-- **Status**: Live and operational
-- **Remaining roadmap items**: History/data retention (SQLite), Extensions page Azure API rewrite, caching performance improvements, time display in header
+- **Container Registry**: cravsnetmon.azurecr.io/azure-local-dashboard (latest tag TBD — v2.6.0+ changes are uncommitted)
+- **Git status**: Last commit is v2.5.1 (`909b9c8`). All changes from v2.6.0 through v2.7.1 are modified but **not yet committed**.
+- **Total versions worked on today**: 9 (2.3.1 → 2.7.1)
+- **Versions committed**: 2.3.1, 2.4.0, 2.5.0, 2.5.1
+- **Versions uncommitted**: 2.6.0, 2.6.1, 2.6.2, 2.7.0, 2.7.1
