@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, X, Loader2, CheckCircle, Terminal, ShieldAlert, ShieldX, AlertTriangle } from 'lucide-react';
+import { Play, X, Loader2, CheckCircle, Terminal, ShieldAlert, ShieldX, AlertTriangle, Zap } from 'lucide-react';
 import type { ToolCall } from '../../types';
 
 interface SafetyClassification {
@@ -20,7 +20,14 @@ export default function CommandBlock({ toolCall, onExecute, onReject }: CommandB
   const [safety, setSafety] = useState<SafetyClassification | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
+  const isAutoApproved = status === 'approved';
+
   useEffect(() => {
+    // Skip safety check for auto-approved read-only commands (already validated)
+    if (isAutoApproved) {
+      setSafety({ level: 'safe', allowed: true, reason: 'Read-only command (auto-approved)' });
+      return;
+    }
     if (input.command && status === 'pending') {
       const token = localStorage.getItem('auth_token');
       fetch('/api/ai/safety-check', {
@@ -35,7 +42,7 @@ export default function CommandBlock({ toolCall, onExecute, onReject }: CommandB
         .then(data => setSafety(data))
         .catch(() => setSafety({ level: 'blocked', allowed: false, reason: 'Safety check unavailable — blocking execution as a precaution.' }));
     }
-  }, [input.command, status]);
+  }, [input.command, status, isAutoApproved]);
 
   const isBlocked = safety?.level === 'blocked';
   const isDestructive = safety?.level === 'destructive';
@@ -106,6 +113,12 @@ export default function CommandBlock({ toolCall, onExecute, onReject }: CommandB
             <span className="flex items-center gap-1 text-xs text-red-400 font-medium">
               <ShieldX className="w-3 h-3" />
               Blocked by safety policy
+            </span>
+          )}
+          {isAutoApproved && (
+            <span className="flex items-center gap-1 text-xs text-cyan-400">
+              <Zap className="w-3 h-3" />
+              Auto-approved (read-only)
             </span>
           )}
           {status === 'executing' && (

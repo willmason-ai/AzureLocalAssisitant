@@ -12,6 +12,14 @@ function generateConversationId(): string {
 // Batching interval for text deltas (ms) — reduces React re-renders during streaming
 const TEXT_FLUSH_INTERVAL = 50;
 
+// Read-only command prefixes that qualify for auto-execute after first approval
+const READONLY_PREFIXES = ['get-', 'test-', 'show-', 'measure-'];
+
+function isReadOnlyCommand(command: string): boolean {
+  const cmd = command.trim().toLowerCase();
+  return READONLY_PREFIXES.some(prefix => cmd.startsWith(prefix));
+}
+
 export function useAIChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -19,6 +27,9 @@ export function useAIChat() {
   const [pendingToolCalls, setPendingToolCalls] = useState<ToolCall[]>([]);
   const [conversationId] = useState(generateConversationId);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Auto-execute: once user approves first read-only command, subsequent ones run automatically
+  const readOnlyApprovedRef = useRef(false);
 
   // Text batching: accumulate deltas in a ref, flush to state on interval
   const pendingTextRef = useRef('');
@@ -51,6 +62,11 @@ export function useAIChat() {
     // Final flush to ensure no text is lost
     flushPendingText();
   }, [flushPendingText]);
+
+  // Queue for tool calls that should be auto-executed
+  const autoExecQueueRef = useRef<ToolCall[]>([]);
+  // Ref to latest executeToolCall so sendMessage can access it without circular deps
+  const executeToolCallRef = useRef<(tc: ToolCall) => Promise<void>>();
 
   // Cleanup on unmount
   useEffect(() => {
@@ -120,12 +136,21 @@ export function useAIChat() {
           }
         }
       }
+      // After initial stream, process auto-exec queue if any read-only commands were queued
+      if (autoExecQueueRef.current.length > 0 && executeToolCallRef.current) {
+        const next = autoExecQueueRef.current.shift()!;
+        stopTextBatching();
+        const execFn = executeToolCallRef.current;
+        setTimeout(() => execFn(next), 100);
+        return; // executeToolCall manages isStreaming from here
+      }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         const errMsg = (error as Error).message;
         // BUG-026: Set error state for retry UI
         setStreamError(errMsg);
         stopTextBatching();
+        autoExecQueueRef.current = [];
         setMessages(prev => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
@@ -168,7 +193,9 @@ export function useAIChat() {
 
       case 'tool_use':
         if (event.tool_call) {
-          const tc: ToolCall = { ...event.tool_call, status: 'pending' };
+          const command = event.tool_call.input?.command || '';
+          const shouldAutoExec = readOnlyApprovedRef.current && isReadOnlyCommand(command);
+          const tc: ToolCall = { ...event.tool_call, status: shouldAutoExec ? 'approved' : 'pending' };
           setPendingToolCalls(prev => [...prev, tc]);
           setMessages(prev => {
             const updated = [...prev];
@@ -178,6 +205,10 @@ export function useAIChat() {
             }
             return [...updated];
           });
+          // Queue for auto-execution after current stream completes
+          if (shouldAutoExec) {
+            autoExecQueueRef.current.push(tc);
+          }
         }
         break;
 
@@ -199,6 +230,11 @@ export function useAIChat() {
   }, []);
 
   const executeToolCall = useCallback(async (toolCall: ToolCall) => {
+    // Mark read-only commands as approved for auto-execute going forward
+    if (isReadOnlyCommand(toolCall.input?.command || '')) {
+      readOnlyApprovedRef.current = true;
+    }
+
     setPendingToolCalls(prev => prev.map(tc =>
       tc.id === toolCall.id ? { ...tc, status: 'executing' as const } : tc
     ));
@@ -210,6 +246,7 @@ export function useAIChat() {
 
     startTextBatching();
     let parseFailures = 0;
+    let chainingToNext = false;
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -275,9 +312,18 @@ export function useAIChat() {
       setPendingToolCalls(prev => prev.map(tc =>
         tc.id === toolCall.id ? { ...tc, status: 'completed' as const } : tc
       ));
+
+      // Process auto-exec queue: if Claude proposed more read-only commands, execute them
+      if (autoExecQueueRef.current.length > 0) {
+        const next = autoExecQueueRef.current.shift()!;
+        chainingToNext = true;
+        // Chain to next auto-exec — small delay to let React state settle
+        setTimeout(() => executeToolCall(next), 100);
+      }
     } catch (error) {
       // BUG-028: Clean up orphaned assistant message on failure
       stopTextBatching();
+      autoExecQueueRef.current = []; // clear queue on error
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -291,9 +337,14 @@ export function useAIChat() {
       ));
     } finally {
       stopTextBatching();
-      setIsStreaming(false);
+      if (!chainingToNext) {
+        setIsStreaming(false);
+      }
     }
   }, [conversationId, handleSSEEvent, startTextBatching, stopTextBatching]);
+
+  // Keep ref in sync so sendMessage can call it without circular deps
+  executeToolCallRef.current = executeToolCall;
 
   const rejectToolCall = useCallback((toolCallId: string) => {
     setPendingToolCalls(prev => prev.map(tc =>
@@ -305,6 +356,8 @@ export function useAIChat() {
     setMessages([]);
     setPendingToolCalls([]);
     setStreamError(null);
+    readOnlyApprovedRef.current = false;
+    autoExecQueueRef.current = [];
   }, []);
 
   return {
